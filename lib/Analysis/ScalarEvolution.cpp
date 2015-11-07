@@ -1838,6 +1838,144 @@ const SCEV *ScalarEvolution::getAnyExtendExpr(const SCEV *Op,
   return ZExt;
 }
 
+namespace {
+
+/// \brief Represents a sum of product representation of a SCEV expression.
+///
+/// The value represented by an instance of this class is "Sum[S*I for (S, I) in
+/// Terms]".  Note:  I is allowed to be 0 for some S.
+class SumOfProduct {
+  DenseMap<const SCEV *, APInt> Terms;
+  unsigned BitWidth;
+
+public:
+  /// \brief Construct a SumOfProduct instance with the given bit width.
+  SumOfProduct(unsigned BitWidth) : BitWidth(BitWidth) {}
+
+  /// \brief Return the coefficient for a specific SCEV term.
+  APInt &operator[](const SCEV *S);
+
+  /// \brief Simplify the entire SumOfProduct instance into a constant, if
+  /// possible.
+  Optional<APInt> asConstant() const;
+
+  /// \brief Obtain raw access to the terms dictionary.
+  const DenseMap<const SCEV *, APInt> &getTerms() const { return Terms; }
+};
+
+
+/// \brief Simplifies a SCEV expression to a canonical sum of products form.
+///
+/// The structure is reminiscent of a visitor pattern, but it isn't a "full"
+/// visitor -- it only really cares about sums and products, and shortcuts out
+/// of everything else.
+struct SumOfProductVisitor {
+  ScalarEvolution &SE;
+  Type *Ty;
+  unsigned BitWidth;
+
+  /// \brief Helper function used by visitMul.
+  void recursivelySimplifyProduct(ArrayRef<SumOfProduct> Terms, unsigned Idx,
+                                  SmallVector<const SCEV *, 4> &TermStack,
+                                  APInt Scale, SumOfProduct &Result);
+public:
+  explicit SumOfProductVisitor(ScalarEvolution &SE, Type *Ty)
+      : SE(SE), Ty(Ty), BitWidth(SE.getTypeSizeInBits(Ty)) {}
+
+  /// \brief Map a sum into a canonical SumOfProduct instance.
+  ///
+  /// It *adds* the sum of product representation of Sum[Ops] to Result.
+  void visitSum(ArrayRef<const SCEV *> Ops, SumOfProduct &Result);
+
+  /// \brief Map a product into a canonical SumOfProduct instance.
+  ///
+  /// It *adds* the sum of product representation of Mul[Ops] to Result.
+  void visitMul(ArrayRef<const SCEV *> Ops, SumOfProduct &Result);
+};
+}
+
+APInt &SumOfProduct::operator[](const SCEV *S) {
+  auto It = Terms.find(S);
+  if (It == Terms.end()) {
+    // By default we'll end up with i1 APInt's, which we won't be able to
+    // multiply with iBitWidth APInts.
+    Terms[S] = APInt(BitWidth, 0);
+    It = Terms.find(S);
+  }
+
+  return It->second;
+}
+
+Optional<APInt> SumOfProduct::asConstant() const {
+  APInt Total(BitWidth, 0);
+  for (const auto &T : Terms)
+    if (!T.second.isMinValue()) {
+      auto *SC = dyn_cast<SCEVConstant>(T.first);
+      if (!SC)
+        return None;
+
+      Total += SC->getValue()->getValue() * T.second;
+    }
+
+  return Total;
+}
+
+void SumOfProductVisitor::
+recursivelySimplifyProduct(ArrayRef<SumOfProduct> MulOps, unsigned Idx,
+                           SmallVector<const SCEV *, 4> &TermStack, APInt Scale,
+                           SumOfProduct &Result) {
+  if (Idx == MulOps.size()) {
+    // getMulExpr modifies the Ops's array in place, so we have to create a copy
+    // here.
+    auto TermStackCopy = TermStack;
+    Result[SE.getMulExpr(TermStackCopy)] += Scale;
+    return;
+  }
+
+  for (const auto &T : MulOps[Idx].getTerms()) {
+    TermStack.push_back(T.first);
+    recursivelySimplifyProduct(MulOps, Idx + 1, TermStack, Scale * T.second,
+                               Result);
+    TermStack.pop_back();
+  }
+}
+
+void SumOfProductVisitor::visitMul(ArrayRef<const SCEV *> Ops,
+                                   SumOfProduct &Result) {
+  SmallVector<SumOfProduct, 4> AddOps;
+  SmallVector<const SCEV *, 4> OtherOps;
+  APInt ConstOp(BitWidth, 1);
+
+  for (auto *S : Ops) {
+    if (auto *SA = dyn_cast<SCEVAddExpr>(S)) {
+      AddOps.emplace_back(BitWidth);
+      visitSum({SA->op_begin(), SA->op_end()}, AddOps.back());
+    } else if (auto *SC = dyn_cast<SCEVConstant>(S))
+      ConstOp *= SC->getValue()->getValue();
+    else
+      OtherOps.push_back(S);
+  }
+
+  if (AddOps.empty()) {
+    Result[SE.getMulExpr(OtherOps)] += ConstOp;
+    return;
+  }
+
+  recursivelySimplifyProduct(AddOps, 0, OtherOps, ConstOp, Result);
+}
+
+void SumOfProductVisitor::visitSum(ArrayRef<const SCEV *> Ops,
+                                   SumOfProduct &Result) {
+  for (const SCEV *S : Ops) {
+    if (auto *SC = dyn_cast<SCEVConstant>(S))
+      Result[SE.getOne(Ty)] += SC->getValue()->getValue();
+    else if (auto *SM = dyn_cast<SCEVMulExpr>(S))
+      visitMul({SM->op_begin(), SM->op_end()}, Result);
+    else
+      Result[S]++;
+  }
+}
+
 /// CollectAddOperandsWithScales - Process the given Ops list, which is
 /// a list of operands to be added under the given scale, update the given
 /// map. This is a helper function for getAddRecExpr. As an example of
@@ -2146,6 +2284,14 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     DenseMap<const SCEV *, APInt> M;
     SmallVector<const SCEV *, 8> NewOps;
     APInt AccumulatedConstant(BitWidth, 0);
+
+    SumOfProduct Result(BitWidth);
+    SumOfProductVisitor SOPVisitor(*this, Ty);
+    SOPVisitor.visitSum(Ops, Result);
+
+    if (auto Val = Result.asConstant())
+      return cast<SCEVConstant>(getConstant(Val.getValue()));
+
     if (CollectAddOperandsWithScales(M, NewOps, AccumulatedConstant,
                                      Ops.data(), Ops.size(),
                                      APInt(BitWidth, 1), *this)) {
