@@ -32,13 +32,42 @@ enum SCEVTypes {
   scZeroExtend,
   scSignExtend,
   scAddExpr,
+  scNoWrapAddExpr,
   scMulExpr,
+  scNoWrapMulExpr,
   scUDivExpr,
   scAddRecExpr,
+  scNoWrapAddRecExpr,
   scUMaxExpr,
   scSMaxExpr,
   scUnknown,
   scCouldNotCompute
+};
+
+template <typename InnerTy, SCEVTypes Kind> class SCEVNoWrap : public SCEV {
+  friend class ScalarEvolution;
+
+  const InnerTy *Inner;
+
+  static_assert(SCEV::NoWrapMask == (1 << 3) - 1, "Adjust bitfields above");
+  unsigned ComputedNoWrapFlags : 3;
+  unsigned AxiomaticNoWrapFlags : 3;
+
+  SCEVNoWrap(const FoldingSetNodeIDRef ID, SCEV::NoWrapFlags F)
+      : SCEV(ID), AxiomaticNoWrapFlags(F),
+        ComputedNoWrapFlags(SCEV::FlagAnyWrap) {
+    assert(!AxiomaticNoWrapFlags && "Unnecessary SCEVNoWrap instance!");
+  }
+
+public:
+  static bool classof(const SCEV *S) { return S->getSCEVType() == Kind; }
+  static unsigned NoWrapNodeKind = Kind;
+
+  const InnerTy *getInnerValue() const { return Inner; }
+  Type *getType() const { return Inner->getType(); }
+  SCEV::NoWrapFlags getFlags() const {
+    return ScalarEvolution::setFlags(ComputedNoWrapFlags, AxiomaticNoWrapFlags);
+  }
 };
 
 /// This class represents a constant integer value.
@@ -216,6 +245,8 @@ public:
   }
 };
 
+typedef SCEVNoWrap<SCEVAddExpr, scNoWrapAddExpr> SCEVNoWrapAddExpr;
+
 /// This node represents multiplication of some number of SCEVs.
 class SCEVMulExpr : public SCEVCommutativeExpr {
   friend class ScalarEvolution;
@@ -229,6 +260,8 @@ public:
     return S->getSCEVType() == scMulExpr;
   }
 };
+
+typedef SCEVNoWrap<SCEVMulExpr, scNoWrapMulExpr> SCEVNoWrapMulExpr;
 
 /// This class represents a binary unsigned division operation.
 class SCEVUDivExpr : public SCEV {
@@ -337,6 +370,8 @@ public:
     return S->getSCEVType() == scAddRecExpr;
   }
 };
+
+typedef SCEVNoWrap<SCEVAddRecExpr, scNoWrapAddExpr> SCEVNoWrapAddRecExpr;
 
 /// This class represents a signed maximum selection.
 class SCEVSMaxExpr : public SCEVCommutativeExpr {
