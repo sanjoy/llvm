@@ -34,10 +34,10 @@ enum SCEVTypes {
   scAddExpr,
   scNoWrapAddExpr,
   scMulExpr,
-  scNoWrapMulExpr,
+  // scNoWrapMulExpr,
   scUDivExpr,
   scAddRecExpr,
-  scNoWrapAddRecExpr,
+  // scNoWrapAddRecExpr,
   scUMaxExpr,
   scSMaxExpr,
   scUnknown,
@@ -54,19 +54,35 @@ template <typename InnerTy, SCEVTypes Kind> class SCEVNoWrap : public SCEV {
   unsigned AxiomaticNoWrapFlags : 3;
 
   SCEVNoWrap(const FoldingSetNodeIDRef ID, SCEV::NoWrapFlags F)
-      : SCEV(ID), AxiomaticNoWrapFlags(F),
+      : SCEV(ID, Kind), AxiomaticNoWrapFlags(F),
         ComputedNoWrapFlags(SCEV::FlagAnyWrap) {
     assert(!AxiomaticNoWrapFlags && "Unnecessary SCEVNoWrap instance!");
   }
 
 public:
   static bool classof(const SCEV *S) { return S->getSCEVType() == Kind; }
-  static unsigned NoWrapNodeKind = Kind;
+  static constexpr unsigned NoWrapNodeKind = Kind;
 
   const InnerTy *getInnerValue() const { return Inner; }
   Type *getType() const { return Inner->getType(); }
+  SCEV::NoWrapFlags getComputedFlags() const {
+    return static_cast<SCEV::NoWrapFlags>(ComputedNoWrapFlags);
+  }
+  SCEV::NoWrapFlags getAxiomaticFlags() const {
+    return static_cast<SCEV::NoWrapFlags>(AxiomaticNoWrapFlags);
+  }
   SCEV::NoWrapFlags getFlags() const {
-    return ScalarEvolution::setFlags(ComputedNoWrapFlags, AxiomaticNoWrapFlags);
+    return ScalarEvolution::setFlags(getComputedFlags(), getAxiomaticFlags());
+  }
+
+  bool hasNoSignedWrap() const {
+    return ScalarEvolution::maskFlags(getFlags(), SCEV::FlagNSW) ==
+           SCEV::FlagNSW;
+  }
+
+  bool hasNoUnsignedWrap() const {
+    return ScalarEvolution::maskFlags(getFlags(), SCEV::FlagNUW) ==
+           SCEV::FlagNUW;
   }
 };
 
@@ -261,7 +277,7 @@ public:
   }
 };
 
-typedef SCEVNoWrap<SCEVMulExpr, scNoWrapMulExpr> SCEVNoWrapMulExpr;
+// typedef SCEVNoWrap<SCEVMulExpr, scNoWrapMulExpr> SCEVNoWrapMulExpr;
 
 /// This class represents a binary unsigned division operation.
 class SCEVUDivExpr : public SCEV {
@@ -371,7 +387,7 @@ public:
   }
 };
 
-typedef SCEVNoWrap<SCEVAddRecExpr, scNoWrapAddExpr> SCEVNoWrapAddRecExpr;
+// typedef SCEVNoWrap<SCEVAddRecExpr, scNoWrapAddExpr> SCEVNoWrapAddRecExpr;
 
 /// This class represents a signed maximum selection.
 class SCEVSMaxExpr : public SCEVCommutativeExpr {

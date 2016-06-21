@@ -160,6 +160,16 @@ void SCEV::print(raw_ostream &OS) const {
        << *SExt->getType() << ")";
     return;
   }
+  case scNoWrapAddExpr: {
+    auto *NoWrap = cast<SCEVNoWrapAddExpr>(this);
+    OS << "cast(";
+    if (NoWrap->hasNoSignedWrap())
+      OS << "nsw ";
+    if (NoWrap->hasNoUnsignedWrap())
+      OS << "nuw ";
+    NoWrap->getInnerValue()->print(OS);
+    OS << ")";
+  }
   case scAddRecExpr: {
     const SCEVAddRecExpr *AR = cast<SCEVAddRecExpr>(this);
     OS << "{" << *AR->getOperand(0);
@@ -248,6 +258,8 @@ Type *SCEV::getType() const {
   switch (static_cast<SCEVTypes>(getSCEVType())) {
   case scConstant:
     return cast<SCEVConstant>(this)->getType();
+  case scNoWrapAddExpr:
+    return cast<SCEVNoWrapAddExpr>(this)->getType();
   case scTruncate:
   case scZeroExtend:
   case scSignExtend:
@@ -571,6 +583,9 @@ public:
       return 0;
     }
 
+    case scNoWrapAddExpr:
+      return compare(cast<SCEVNoWrapAddExpr>(LHS)->getInnerValue(),
+                     cast<SCEVNoWrapAddExpr>(RHS)->getInnerValue());
     case scAddExpr:
     case scMulExpr:
     case scSMaxExpr:
@@ -6649,6 +6664,9 @@ static Constant *BuildConstantFromSCEV(const SCEV *V) {
         return ConstantExpr::getTrunc(CastOp, ST->getType());
       break;
     }
+    case scNoWrapAddExpr: {
+      return BuildConstantFromSCEV(cast<SCEVNoWrapAddExpr>(V)->getInnerValue());
+    }
     case scAddExpr: {
       const SCEVAddExpr *SA = cast<SCEVAddExpr>(V);
       if (Constant *C = BuildConstantFromSCEV(SA->getOperand(0))) {
@@ -9708,6 +9726,8 @@ ScalarEvolution::computeLoopDisposition(const SCEV *S, const Loop *L) {
   case scZeroExtend:
   case scSignExtend:
     return getLoopDisposition(cast<SCEVCastExpr>(S)->getOperand(), L);
+  case scNoWrapAddExpr:
+    return getLoopDisposition(cast<SCEVNoWrapAddExpr>(S)->getInnerValue(), L);
   case scAddRecExpr: {
     const SCEVAddRecExpr *AR = cast<SCEVAddRecExpr>(S);
 
@@ -9811,6 +9831,8 @@ ScalarEvolution::computeBlockDisposition(const SCEV *S, const BasicBlock *BB) {
   case scZeroExtend:
   case scSignExtend:
     return getBlockDisposition(cast<SCEVCastExpr>(S)->getOperand(), BB);
+  case scNoWrapAddExpr:
+    return getBlockDisposition(cast<SCEVNoWrapAddExpr>(S)->getInnerValue(), BB);
   case scAddRecExpr: {
     // This uses a "dominates" query instead of "properly dominates" query
     // to test for proper dominance too, because the instruction which
