@@ -53,10 +53,11 @@ template <typename InnerTy, SCEVTypes Kind> class SCEVNoWrap : public SCEV {
   unsigned ComputedNoWrapFlags : 3;
   unsigned AxiomaticNoWrapFlags : 3;
 
-  SCEVNoWrap(const FoldingSetNodeIDRef ID, SCEV::NoWrapFlags F)
-      : SCEV(ID, Kind), AxiomaticNoWrapFlags(F),
-        ComputedNoWrapFlags(SCEV::FlagAnyWrap) {
-    assert(!AxiomaticNoWrapFlags && "Unnecessary SCEVNoWrap instance!");
+  SCEVNoWrap(const FoldingSetNodeIDRef ID, const SCEVAddExpr *Inner,
+             SCEV::NoWrapFlags F)
+      : SCEV(ID, Kind), Inner(Inner), ComputedNoWrapFlags(SCEV::FlagAnyWrap),
+        AxiomaticNoWrapFlags(F) {
+    assert(AxiomaticNoWrapFlags && "Unnecessary SCEVNoWrap instance!");
   }
 
 public:

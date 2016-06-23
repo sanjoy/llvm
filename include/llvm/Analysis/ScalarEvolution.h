@@ -48,6 +48,7 @@ class TargetLibraryInfo;
 class LLVMContext;
 class Operator;
 class SCEV;
+class SCEVAddExpr;
 class SCEVAddRecExpr;
 class SCEVConstant;
 class SCEVExpander;
@@ -1184,6 +1185,7 @@ public:
   const SCEV *getAnyExtendExpr(const SCEV *Op, Type *Ty);
   const SCEV *getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
                          SCEV::NoWrapFlags Flags = SCEV::FlagAnyWrap);
+  const SCEV *getNoWrapAddExpr(const SCEVAddExpr *Op, SCEV::NoWrapFlags Flags);
   const SCEV *getAddExpr(const SCEV *LHS, const SCEV *RHS,
                          SCEV::NoWrapFlags Flags = SCEV::FlagAnyWrap) {
     SmallVector<const SCEV *, 2> Ops = {LHS, RHS};

@@ -169,6 +169,7 @@ void SCEV::print(raw_ostream &OS) const {
       OS << "nuw ";
     NoWrap->getInnerValue()->print(OS);
     OS << ")";
+    return;
   }
   case scAddRecExpr: {
     const SCEVAddRecExpr *AR = cast<SCEVAddRecExpr>(this);
@@ -2031,6 +2032,23 @@ StrengthenNoWrapFlags(ScalarEvolution *SE, SCEVTypes Type,
   }
 
   return Flags;
+}
+
+const SCEV *ScalarEvolution::getNoWrapAddExpr(const SCEVAddExpr *Op,
+                                              SCEV::NoWrapFlags Flags) {
+  FoldingSetNodeID ID;
+  ID.AddInteger(scNoWrapAddExpr);
+  ID.AddPointer(Op);
+  ID.AddInteger(Flags);
+  void *IP = nullptr;
+  auto *S =
+      static_cast<SCEVNoWrapAddExpr *>(UniqueSCEVs.FindNodeOrInsertPos(ID, IP));
+  if (!S) {
+    S = new (SCEVAllocator)
+        SCEVNoWrapAddExpr(ID.Intern(SCEVAllocator), Op, Flags);
+    UniqueSCEVs.InsertNode(S, IP);
+  }
+  return S;
 }
 
 /// Get a canonical add expression, or something simpler if possible.
@@ -4973,10 +4991,17 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       // Instead, gather up all the operands and make a single getAddExpr call.
       // LLVM IR canonical form means we need only traverse the left operands.
       SmallVector<const SCEV *, 4> AddOps;
+      SCEV::NoWrapFlags F = SCEV::FlagAnyWrap;
+      if (BO->IsNSW)
+        F = setFlags(F, SCEV::FlagNSW);
+      if (BO->IsNUW)
+        F = setFlags(F, SCEV::FlagNUW);
       do {
         if (BO->Op) {
           if (auto *OpSCEV = getExistingSCEV(BO->Op)) {
             AddOps.push_back(OpSCEV);
+            F = SCEV::FlagAnyWrap;
+            // Set F more aggressively if OpSCEV is a SCEVNoWrapExpr.
             break;
           }
 
@@ -4987,22 +5012,25 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
           // since the flags are only known to apply to this particular
           // addition - they may not apply to other additions that can be
           // formed with operands from AddOps.
-          const SCEV *RHS = getSCEV(BO->RHS);
-          SCEV::NoWrapFlags Flags = getNoWrapFlagsFromUB(BO->Op);
-          if (Flags != SCEV::FlagAnyWrap) {
-            const SCEV *LHS = getSCEV(BO->LHS);
-            if (BO->Opcode == Instruction::Sub)
-              AddOps.push_back(getMinusSCEV(LHS, RHS, Flags));
-            else
-              AddOps.push_back(getAddExpr(LHS, RHS, Flags));
-            break;
-          }
+          // const SCEV *RHS = getSCEV(BO->RHS);
+          // SCEV::NoWrapFlags Flags = getNoWrapFlagsFromUB(BO->Op);
+          // if (Flags != SCEV::FlagAnyWrap) {
+          //   const SCEV *LHS = getSCEV(BO->LHS);
+          //   if (BO->Opcode == Instruction::Sub)
+          //     AddOps.push_back(getMinusSCEV(LHS, RHS, Flags));
+          //   else
+          //     AddOps.push_back(getAddExpr(LHS, RHS, Flags));
+          //   break;
+          // }
         }
 
-        if (BO->Opcode == Instruction::Sub)
+        if (BO->Opcode == Instruction::Sub) {
           AddOps.push_back(getNegativeSCEV(getSCEV(BO->RHS)));
-        else
+          // F = SCEV::FlagAnyWrap;
+        } else {
           AddOps.push_back(getSCEV(BO->RHS));
+          // if (BO->IsNSW
+        }
 
         auto NewBO = MatchBinaryOp(BO->LHS, DT);
         if (!NewBO || (NewBO->Opcode != Instruction::Add &&
@@ -5011,9 +5039,17 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
           break;
         }
         BO = NewBO;
+        if (!BO->IsNSW)
+          F = clearFlags(F, SCEV::FlagNSW);
+        if (!BO->IsNUW || NewBO->Opcode == Instruction::Sub)
+          F = clearFlags(F, SCEV::FlagNUW);
       } while (true);
 
-      return getAddExpr(AddOps);
+      auto *R = getAddExpr(AddOps);
+      if (F)
+        if (auto *RA = dyn_cast<SCEVAddExpr>(R))
+          return getNoWrapAddExpr(RA, F);
+      return R;
     }
 
     case Instruction::Mul: {
@@ -6846,6 +6882,12 @@ const SCEV *ScalarEvolution::computeSCEVAtScope(const SCEV *V, const Loop *L) {
     }
     // If we got here, all operands are loop invariant.
     return Comm;
+  }
+
+  if (auto *SA = dyn_cast<SCEVNoWrapAddExpr>(V)) {
+    return getNoWrapAddExpr(
+        cast<SCEVAddExpr>(computeSCEVAtScope(SA->getInnerValue(), L)),
+        SA->getAxiomaticFlags());
   }
 
   if (const SCEVUDivExpr *Div = dyn_cast<SCEVUDivExpr>(V)) {
