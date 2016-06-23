@@ -1379,6 +1379,7 @@ bool ScalarEvolution::proveNoWrapByVaryingStart(const SCEV *Start,
 
     FoldingSetNodeID ID;
     ID.AddInteger(scAddRecExpr);
+    ID.AddInteger(SCEV::FlagAnyWrap);
     ID.AddPointer(PreStart);
     ID.AddPointer(Step);
     ID.AddPointer(L);
@@ -2359,10 +2360,13 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     // next one.
   }
 
+  const auto AxiomaticFlags = SCEV::FlagAnyWrap;
+
   // Okay, it looks like we really DO need an add expr.  Check to see if we
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scAddExpr);
+  ID.AddInteger(AxiomaticFlags);
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = nullptr;
@@ -2372,7 +2376,7 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     const SCEV **O = SCEVAllocator.Allocate<const SCEV *>(Ops.size());
     std::uninitialized_copy(Ops.begin(), Ops.end(), O);
     S = new (SCEVAllocator) SCEVAddExpr(ID.Intern(SCEVAllocator),
-                                        O, Ops.size());
+                                        O, Ops.size(), AxiomaticFlags);
     UniqueSCEVs.InsertNode(S, IP);
   }
   S->setNoWrapFlags(Flags);
@@ -2649,10 +2653,13 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
     // next one.
   }
 
+  const auto AxiomaticFlags = SCEV::FlagAnyWrap;
+
   // Okay, it looks like we really DO need an mul expr.  Check to see if we
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scMulExpr);
+  ID.AddInteger(AxiomaticFlags);
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = nullptr;
@@ -2661,8 +2668,8 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
   if (!S) {
     const SCEV **O = SCEVAllocator.Allocate<const SCEV *>(Ops.size());
     std::uninitialized_copy(Ops.begin(), Ops.end(), O);
-    S = new (SCEVAllocator) SCEVMulExpr(ID.Intern(SCEVAllocator),
-                                        O, Ops.size());
+    S = new (SCEVAllocator)
+        SCEVMulExpr(ID.Intern(SCEVAllocator), O, Ops.size(), AxiomaticFlags);
     UniqueSCEVs.InsertNode(S, IP);
   }
   S->setNoWrapFlags(Flags);
@@ -2948,10 +2955,13 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
     }
   }
 
+  const auto AxiomaticFlags = SCEV::FlagAnyWrap;
+
   // Okay, it looks like we really DO need an addrec expr.  Check to see if we
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scAddRecExpr);
+  ID.AddInteger(AxiomaticFlags);
   for (unsigned i = 0, e = Operands.size(); i != e; ++i)
     ID.AddPointer(Operands[i]);
   ID.AddPointer(L);
@@ -2961,8 +2971,8 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
   if (!S) {
     const SCEV **O = SCEVAllocator.Allocate<const SCEV *>(Operands.size());
     std::uninitialized_copy(Operands.begin(), Operands.end(), O);
-    S = new (SCEVAllocator) SCEVAddRecExpr(ID.Intern(SCEVAllocator),
-                                           O, Operands.size(), L);
+    S = new (SCEVAllocator) SCEVAddRecExpr(ID.Intern(SCEVAllocator), O,
+                                           Operands.size(), L, AxiomaticFlags);
     UniqueSCEVs.InsertNode(S, IP);
   }
   S->setNoWrapFlags(Flags);

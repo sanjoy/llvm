@@ -129,9 +129,17 @@ namespace llvm {
     const SCEV *const *Operands;
     size_t NumOperands;
 
-    SCEVNAryExpr(const FoldingSetNodeIDRef ID,
-                 enum SCEVTypes T, const SCEV *const *O, size_t N)
-      : SCEV(ID, T), Operands(O), NumOperands(N) {}
+    SCEVNAryExpr(const FoldingSetNodeIDRef ID, enum SCEVTypes T,
+                 const SCEV *const *O, size_t N, NoWrapFlags AxFlags)
+        : SCEV(ID, T), Operands(O), NumOperands(N) {
+      SubclassData = AxFlags << 3;
+    }
+
+    unsigned getComputedFlags() const { return SubclassData & 7; }
+    unsigned getAxiomaticFlags() const { return (SubclassData >> 3) & 7; }
+    void setComputedFlags(unsigned Value) {
+      SubclassData = (getAxiomaticFlags() << 3) | getComputedFlags() | Value;
+    }
 
   public:
     size_t getNumOperands() const { return NumOperands; }
@@ -151,7 +159,7 @@ namespace llvm {
     Type *getType() const { return getOperand(0)->getType(); }
 
     NoWrapFlags getNoWrapFlags(NoWrapFlags Mask = NoWrapMask) const {
-      return (NoWrapFlags)(SubclassData & Mask);
+      return (NoWrapFlags)((getComputedFlags() | getAxiomaticFlags()) & Mask);
     }
 
     bool hasNoUnsignedWrap() const {
@@ -179,9 +187,10 @@ namespace llvm {
   /// This node is the base class for n'ary commutative operators.
   class SCEVCommutativeExpr : public SCEVNAryExpr {
   protected:
-    SCEVCommutativeExpr(const FoldingSetNodeIDRef ID,
-                        enum SCEVTypes T, const SCEV *const *O, size_t N)
-      : SCEVNAryExpr(ID, T, O, N) {}
+    SCEVCommutativeExpr(const FoldingSetNodeIDRef ID, enum SCEVTypes T,
+                        const SCEV *const *O, size_t N,
+                        SCEV::NoWrapFlags AxFlags)
+        : SCEVNAryExpr(ID, T, O, N, AxFlags) {}
 
   public:
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -194,7 +203,7 @@ namespace llvm {
 
     /// Set flags for a non-recurrence without clearing previously set flags.
     void setNoWrapFlags(NoWrapFlags Flags) {
-      SubclassData |= Flags;
+      setComputedFlags(Flags);
     }
   };
 
@@ -204,8 +213,8 @@ namespace llvm {
     friend class ScalarEvolution;
 
     SCEVAddExpr(const FoldingSetNodeIDRef ID,
-                const SCEV *const *O, size_t N)
-      : SCEVCommutativeExpr(ID, scAddExpr, O, N) {
+                const SCEV *const *O, size_t N, NoWrapFlags F)
+      : SCEVCommutativeExpr(ID, scAddExpr, O, N, F) {
     }
 
   public:
@@ -227,10 +236,9 @@ namespace llvm {
   class SCEVMulExpr : public SCEVCommutativeExpr {
     friend class ScalarEvolution;
 
-    SCEVMulExpr(const FoldingSetNodeIDRef ID,
-                const SCEV *const *O, size_t N)
-      : SCEVCommutativeExpr(ID, scMulExpr, O, N) {
-    }
+    SCEVMulExpr(const FoldingSetNodeIDRef ID, const SCEV *const *O, size_t N,
+                NoWrapFlags F)
+        : SCEVCommutativeExpr(ID, scMulExpr, O, N, F) {}
 
   public:
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -282,9 +290,9 @@ namespace llvm {
 
     const Loop *L;
 
-    SCEVAddRecExpr(const FoldingSetNodeIDRef ID,
-                   const SCEV *const *O, size_t N, const Loop *l)
-      : SCEVNAryExpr(ID, scAddRecExpr, O, N), L(l) {}
+    SCEVAddRecExpr(const FoldingSetNodeIDRef ID, const SCEV *const *O, size_t N,
+                   const Loop *l, NoWrapFlags F)
+        : SCEVNAryExpr(ID, scAddRecExpr, O, N, F), L(l) {}
 
   public:
     const SCEV *getStart() const { return Operands[0]; }
@@ -356,7 +364,7 @@ namespace llvm {
 
     SCEVSMaxExpr(const FoldingSetNodeIDRef ID,
                  const SCEV *const *O, size_t N)
-      : SCEVCommutativeExpr(ID, scSMaxExpr, O, N) {
+      : SCEVCommutativeExpr(ID, scSMaxExpr, O, N, FlagNSW) {
       // Max never overflows.
       setNoWrapFlags((NoWrapFlags)(FlagNUW | FlagNSW));
     }
@@ -375,7 +383,7 @@ namespace llvm {
 
     SCEVUMaxExpr(const FoldingSetNodeIDRef ID,
                  const SCEV *const *O, size_t N)
-      : SCEVCommutativeExpr(ID, scUMaxExpr, O, N) {
+      : SCEVCommutativeExpr(ID, scUMaxExpr, O, N, FlagNUW) {
       // Max never overflows.
       setNoWrapFlags((NoWrapFlags)(FlagNUW | FlagNSW));
     }
