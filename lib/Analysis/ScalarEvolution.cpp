@@ -1972,6 +1972,7 @@ static SCEV::NoWrapFlags
 StrengthenNoWrapFlags(ScalarEvolution *SE, SCEVTypes Type,
                       const SmallVectorImpl<const SCEV *> &Ops,
                       SCEV::NoWrapFlags Flags) {
+  // TODO: Have this only update ComputedFlags
   using namespace std::placeholders;
   typedef OverflowingBinaryOperator OBO;
 
@@ -2360,13 +2361,11 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     // next one.
   }
 
-  const auto AxiomaticFlags = SCEV::FlagAnyWrap;
-
   // Okay, it looks like we really DO need an add expr.  Check to see if we
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scAddExpr);
-  ID.AddInteger(AxiomaticFlags);
+  ID.AddInteger(Flags);
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = nullptr;
@@ -2375,11 +2374,10 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
   if (!S) {
     const SCEV **O = SCEVAllocator.Allocate<const SCEV *>(Ops.size());
     std::uninitialized_copy(Ops.begin(), Ops.end(), O);
-    S = new (SCEVAllocator) SCEVAddExpr(ID.Intern(SCEVAllocator),
-                                        O, Ops.size(), AxiomaticFlags);
+    S = new (SCEVAllocator)
+        SCEVAddExpr(ID.Intern(SCEVAllocator), O, Ops.size(), Flags);
     UniqueSCEVs.InsertNode(S, IP);
   }
-  S->setNoWrapFlags(Flags);
   return S;
 }
 
@@ -4071,8 +4069,16 @@ const SCEV *ScalarEvolution::createAddRecFromPHI(PHINode *PN) {
           // know that it us *undefined behavior* for BEValueV to
           // overflow.
           if (auto *BEInst = dyn_cast<Instruction>(BEValueV))
-            if (isLoopInvariant(Accum, L) && isAddRecNeverPoison(BEInst, L))
+            if (isLoopInvariant(Accum, L) && isAddRecNeverPoison(BEInst, L)) {
               (void)getAddRecExpr(getAddExpr(StartVal, Accum), Accum, L, Flags);
+              (void)getAddRecExpr(
+                  getAddExpr(StartVal, Accum, clearFlags(Flags, SCEV::FlagNW)),
+                  Accum, L, Flags);
+              (void)getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagNSW),
+                                  Accum, L, Flags);
+              (void)getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagNUW),
+                                  Accum, L, Flags);
+            }
 
           return PHISCEV;
         }

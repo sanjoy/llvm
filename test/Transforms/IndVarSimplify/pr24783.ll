@@ -19,7 +19,7 @@ while.body.i:
 
 loop.exit:
 ; CHECK: loop.exit:
-; CHECK: [[END_BCASTED:%[a-z0-9]+]] = bitcast i32* %end to i8*
+; CHECK: [[END_BCASTED:%[a-z0-9]+]] = bitcast i32* %scevgep to i8*
 ; CHECK: store i8* [[END_BCASTED]], i8** %loc
   %ptr.inc.lcssa = phi i8* [ %ptr.inc, %while.body.i ]
   store i8* %ptr.inc.lcssa, i8** %loc

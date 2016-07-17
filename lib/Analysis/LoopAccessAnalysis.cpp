@@ -1063,8 +1063,8 @@ bool llvm::isConsecutiveAccess(Value *A, Value *B, const DataLayout &DL,
   // Otherwise compute the distance with SCEV between the base pointers.
   const SCEV *PtrSCEVA = SE.getSCEV(PtrA);
   const SCEV *PtrSCEVB = SE.getSCEV(PtrB);
-  const SCEV *X = SE.getAddExpr(PtrSCEVA, BaseDelta);
-  return X == PtrSCEVB;
+  const SCEV *Delta = SE.getMinusSCEV(PtrSCEVB, PtrSCEVA);
+  return Delta == BaseDelta;
 }
 
 bool MemoryDepChecker::Dependence::isSafeForVectorization(DepType Type) {
