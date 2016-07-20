@@ -5040,6 +5040,7 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       // Instead, gather up all the operands and make a single getAddExpr call.
       // LLVM IR canonical form means we need only traverse the left operands.
       SmallVector<const SCEV *, 4> AddOps;
+      bool NoSignedWrap = BO->IsNSW, NoUnsignedWrap = BO->IsNUW;
       do {
         if (BO->Op) {
           if (auto *OpSCEV = getExistingSCEV(BO->Op)) {
@@ -5047,6 +5048,7 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
             break;
           }
 
+#if 0
           // If a NUW or NSW flag can be applied to the SCEV for this
           // addition, then compute the SCEV for this addition by itself
           // with a separate call to getAddExpr. We need to do that
@@ -5064,6 +5066,7 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
               AddOps.push_back(getAddExpr(LHS, RHS, Flags));
             break;
           }
+#endif
         }
 
         if (BO->Opcode == Instruction::Sub)
@@ -5078,9 +5081,16 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
           break;
         }
         BO = NewBO;
+        NoSignedWrap &= BO->IsNSW;
+        NoUnsignedWrap &= BO->IsNUW;
       } while (true);
 
-      return getAddExpr(AddOps);
+      auto F = SCEV::FlagAnyWrap;
+      if (NoSignedWrap)
+        F = setFlags(F, SCEV::FlagNSW);
+      if (NoUnsignedWrap)
+        F = setFlags(F, SCEV::FlagNUW);
+      return getAddExpr(AddOps, F);
     }
 
     case Instruction::Mul: {
