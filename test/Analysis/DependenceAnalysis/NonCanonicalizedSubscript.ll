@@ -60,10 +60,8 @@ define void @coupled_miv_type_mismatch(i32 %n) #0 {
 entry:
   br label %for.cond
 
-; CHECK: da analyze - input [0 *]!
 ; CHECK: da analyze - anti [1 *]!
 ; CHECK: da analyze - none!
-; DELIN: da analyze - input [0 *]!
 ; DELIN: da analyze - anti [1 *]!
 ; DELIN: da analyze - none!
 for.cond:                                         ; preds = %for.inc11, %entry
