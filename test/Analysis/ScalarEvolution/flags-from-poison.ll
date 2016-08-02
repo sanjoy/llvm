@@ -115,7 +115,7 @@ loop:
 loop2:
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %ptr = getelementptr inbounds float, float* %input, i32 %index32
@@ -162,7 +162,7 @@ loop:
   %i = phi i32 [ %nexti, %loop2 ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %ptr = getelementptr inbounds float, float* %input, i32 %index32
@@ -214,7 +214,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %ptr = getelementptr inbounds float, float* %input, i32 %index32
@@ -236,7 +236,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   call void @foo()
   %index32 = add nsw i32 %i, %offset
 
@@ -259,7 +259,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %ptr = getelementptr inbounds float, float* %input, i32 %index32
@@ -282,7 +282,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %ptr = getelementptr float, float* %input, i32 %index32
@@ -327,7 +327,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %indexmul = mul nsw i32 %index32, %offset
@@ -350,7 +350,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %index32 =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %index32 = add nsw i32 %i, %offset
 
   %indexmul = mul i32 %index32, 2
@@ -392,7 +392,7 @@ loop:
   %i = phi i32 [ %nexti, %loop ], [ 0, %entry ]
 
 ; CHECK: %j =
-; CHECK: --> {%offset,+,1}<nw>
+; CHECK: --> {%offset,+,1}<nsw>
   %j = add nsw i32 %i, %offset
 
   %q = sdiv i32 %j, %numIterations
@@ -434,7 +434,7 @@ entry:
   br label %loop
 loop2:
 ; CHECK: %seq =
-; CHECK: --> {(2 + %offset),+,1}<nw>
+; CHECK: --> {(2 + %offset)<nsw>,+,1}<nsw>
   %seq = add nsw nuw i32 %index32, 1
   %exitcond = icmp eq i32 %nexti, %numIterations
   br i1 %exitcond, label %exit, label %loop
@@ -635,7 +635,7 @@ entry:
   br label %loop
 loop2:
 ; CHECK: %seq =
-; CHECK: --> {(2 + (-1 * %offset)),+,1}<nw>
+; CHECK: --> {(2 + (-1 * %offset))<nsw>,+,1}<nsw>
   %seq = add nsw nuw i32 %index32, 1
   %exitcond = icmp eq i32 %nexti, %numIterations
   br i1 %exitcond, label %exit, label %loop

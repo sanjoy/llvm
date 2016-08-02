@@ -12,7 +12,7 @@ target triple = "x86_64-apple-macosx10.9.0"
 ; that would hopefully be fixed. For now, check that this isn't
 ; vectorized.
 ; CHECK-LABEL: foo_3double
-; CHECK-NOT: x double>
+; CHECK: x double>
 ; Function Attrs: nounwind ssp uwtable
 define void @foo_3double(i32 %u) #0 {
 entry:

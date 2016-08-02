@@ -109,7 +109,8 @@ _ZSt4fillIPiiEvT_S1_RKT0_.exit:                   ; preds = %for.body.i.i, %entr
 
 ; A single AddExpr exists for (%a + %b), which is not always <nsw>.
 ; CHECK: @addnsw
-; CHECK-NOT: --> (%a + %b)<nsw>
+; CHECK:  %tmp2 = add nsw i32 %a, %b
+; CHECK-NEXT:  -->  (%a + %b)<nsw> U: full-set S: full-set
 define i32 @addnsw(i32 %a, i32 %b) nounwind ssp {
 entry:
   %tmp = add i32 %a, %b
@@ -163,7 +164,7 @@ bb5:                                              ; preds = %bb2
 declare void @f(i32)
 
 ; CHECK-LABEL: nswnowrap
-; CHECK: --> {(1 + %v)<nsw>,+,1}<nsw><%for.body>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (1 + ((1 + %v) smax %v))
+; CHECK: --> {(1 + %v)<nsw>,+,1}<nsw><%for.body>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (1 + ((1 + %v)<nsw> smax %v))
 define void @nswnowrap(i32 %v, i32* %buf) {
 entry:
   %add = add nsw i32 %v, 1
@@ -215,7 +216,7 @@ loop:
   %iv = phi i32 [ 0, %entry ], [ %iv.inc, %loop ]
   %iv.inc = add nsw i32 %iv, 7
 ; CHECK:    %iv.inc = add nsw i32 %iv, 7
-; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+; CHECK-NEXT:  -->  {7,+,7}<nuw><nsw><%loop>
   %becond = icmp ult i32 %iv, %n
   br i1 %becond, label %loop, label %leave
 
@@ -233,7 +234,7 @@ loop:
   %iv.inc = add nsw i32 %iv, 7
   %iv.inc.and = and i32 %iv.inc, 0
 ; CHECK:    %iv.inc = add nsw i32 %iv, 7
-; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+; CHECK-NEXT:  -->  {7,+,7}<nuw><nsw><%loop>
   %becond = icmp ult i32 %iv.inc.and, %n
   br i1 %becond, label %loop, label %leave
 
@@ -252,7 +253,7 @@ loop:
   %iv = phi i32 [ 0, %entry ], [ %iv.inc, %loop ]
   %iv.inc = add nsw i32 %iv, 7
 ; CHECK:    %iv.inc = add nsw i32 %iv, 7
-; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+; CHECK-NEXT:  -->  {7,+,7}<nuw><nsw><%loop>
   %becond = icmp ult i32 %iv.inc, %n
   call void @may_exit()
   br i1 %becond, label %loop, label %leave

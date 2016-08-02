@@ -7345,6 +7345,27 @@ ScalarEvolution::getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB) {
   return {nullptr, nullptr};
 }
 
+static bool IsEqual(const SCEV *LHS, const SCEV *RHS) {
+  if (LHS == RHS) return true;
+
+  if (LHS->getSCEVType() != RHS->getSCEVType())
+    return false;
+
+  auto *NAryLHS = dyn_cast<SCEVNAryExpr>(LHS);
+  if (!NAryLHS)
+    return false;
+
+  auto *NAryRHS = cast<SCEVNAryExpr>(RHS);
+
+  if (auto *AR = dyn_cast<SCEVAddRecExpr>(NAryLHS))
+    if (AR->getLoop() != cast<SCEVAddRecExpr>(NAryRHS)->getLoop())
+      return false;
+
+  return NAryLHS->getNumOperands() == NAryRHS->getNumOperands() &&
+         std::equal(NAryLHS->op_begin(), NAryLHS->op_end(),
+                    NAryRHS->op_begin(), IsEqual);
+}
+
 /// SCEV structural equivalence is usually sufficient for testing whether two
 /// expressions are equal, however for the purposes of looking for a condition
 /// guarding a loop, it can be useful to be a little more general, since a
@@ -7352,7 +7373,7 @@ ScalarEvolution::getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB) {
 ///
 static bool HasSameValue(const SCEV *A, const SCEV *B) {
   // Quick check to see if they are the same SCEV.
-  if (A == B) return true;
+  if (IsEqual(A, B)) return true;
 
   auto ComputesEqualValues = [](const Instruction *A, const Instruction *B) {
     // Not all instructions that are "identical" compute the same value.  For
@@ -8205,14 +8226,14 @@ bool ScalarEvolution::isImpliedCond(ICmpInst::Predicate Pred, const SCEV *LHS,
   // Canonicalize the query to match the way instcombine will have
   // canonicalized the comparison.
   if (SimplifyICmpOperands(Pred, LHS, RHS))
-    if (LHS == RHS)
+    if (IsEqual(LHS, RHS))
       return CmpInst::isTrueWhenEqual(Pred);
   if (SimplifyICmpOperands(FoundPred, FoundLHS, FoundRHS))
-    if (FoundLHS == FoundRHS)
+    if (IsEqual(FoundLHS, FoundRHS))
       return CmpInst::isFalseWhenEqual(FoundPred);
 
   // Check to see if we can make the LHS or RHS match.
-  if (LHS == FoundRHS || RHS == FoundLHS) {
+  if (IsEqual(LHS, FoundRHS) || IsEqual(RHS, FoundLHS)) {
     if (isa<SCEVConstant>(RHS)) {
       std::swap(FoundLHS, FoundRHS);
       FoundPred = ICmpInst::getSwappedPredicate(FoundPred);
