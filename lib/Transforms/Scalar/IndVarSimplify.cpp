@@ -1083,7 +1083,7 @@ Instruction *WidenIV::cloneArithmeticIVUser(NarrowIVDefUse DU,
       break;
     }
 
-    return WideUse == WideAR;
+    return SE->hasSameValue(WideUse, WideAR);
   };
 
   bool SignExtend = IsSigned;
@@ -1351,7 +1351,8 @@ Instruction *WidenIV::widenIVUse(NarrowIVDefUse DU, SCEVExpander &Rewriter) {
   // Reuse the IV increment that SCEVExpander created as long as it dominates
   // NarrowUse.
   Instruction *WideUse = nullptr;
-  if (WideAddRec == WideIncExpr && Rewriter.hoistIVInc(WideInc, DU.NarrowUse))
+  if (SE->hasSameValue(WideAddRec, WideIncExpr) &&
+      Rewriter.hoistIVInc(WideInc, DU.NarrowUse))
     WideUse = WideInc;
   else {
     WideUse = cloneIVUser(DU, WideAddRec);
@@ -1363,7 +1364,7 @@ Instruction *WidenIV::widenIVUse(NarrowIVDefUse DU, SCEVExpander &Rewriter) {
   // evaluates to the same expression as the extended narrow use, but doesn't
   // absolutely guarantee it. Hence the following failsafe check. In rare cases
   // where it fails, we simply throw away the newly created wide use.
-  if (WideAddRec != SE->getSCEV(WideUse)) {
+  if (!SE->hasSameValue(WideAddRec, SE->getSCEV(WideUse))) {
     DEBUG(dbgs() << "Wide use expression mismatch: " << *WideUse
           << ": " << *SE->getSCEV(WideUse) << " != " << *WideAddRec << "\n");
     DeadInsts.emplace_back(WideUse);

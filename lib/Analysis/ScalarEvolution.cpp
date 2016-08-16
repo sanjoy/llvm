@@ -2907,7 +2907,10 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
   // meaningful BE count at this point (and if we don't, we'd be stuck
   // with a SCEVCouldNotCompute as the cached BE count).
 
-  Flags = StrengthenNoWrapFlags(this, scAddRecExpr, Operands, Flags);
+  const auto AxiomaticFlags = Flags;
+
+  const auto ComputedFlags =
+      StrengthenNoWrapFlags(this, scAddRecExpr, Operands, Flags);
 
   // Canonicalize nested AddRecs in by nesting them in order of loop depth.
   if (const SCEVAddRecExpr *NestedAR = dyn_cast<SCEVAddRecExpr>(Operands[0])) {
@@ -2953,8 +2956,6 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
     }
   }
 
-  const auto AxiomaticFlags = SCEV::FlagAnyWrap;
-
   // Okay, it looks like we really DO need an addrec expr.  Check to see if we
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
@@ -2973,7 +2974,7 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
                                            Operands.size(), L, AxiomaticFlags);
     UniqueSCEVs.InsertNode(S, IP);
   }
-  S->setNoWrapFlags(Flags);
+  S->setNoWrapFlags(ComputedFlags);
   return S;
 }
 
@@ -7364,6 +7365,10 @@ static bool IsEqual(const SCEV *LHS, const SCEV *RHS) {
   return NAryLHS->getNumOperands() == NAryRHS->getNumOperands() &&
          std::equal(NAryLHS->op_begin(), NAryLHS->op_end(),
                     NAryRHS->op_begin(), IsEqual);
+}
+
+bool ScalarEvolution::hasSameValue(const SCEV *A, const SCEV *B) const {
+  return IsEqual(A, B);
 }
 
 /// SCEV structural equivalence is usually sufficient for testing whether two

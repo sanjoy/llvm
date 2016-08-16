@@ -421,6 +421,8 @@ namespace llvm {
       LoopComputable  ///< The SCEV varies predictably with the loop.
     };
 
+    bool hasSameValue(const SCEV *A, const SCEV *B) const;
+
     /// An enum describing the relationship between a SCEV and a basic block.
     enum BlockDisposition {
       DoesNotDominateBlock,  ///< The SCEV does not dominate the block.

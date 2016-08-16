@@ -527,7 +527,7 @@ bool SimplifyIndvar::strengthenOverflowingOperation(BinaryOperator *BO,
     const SCEV *OpAfterExtend = (SE->*GetExprForBO)(
       SE->getZeroExtendExpr(LHS, WideTy), SE->getZeroExtendExpr(RHS, WideTy),
       SCEV::FlagAnyWrap);
-    if (ExtendAfterOp == OpAfterExtend) {
+    if (SE->hasSameValue(ExtendAfterOp, OpAfterExtend)) {
       BO->setHasNoUnsignedWrap();
       SE->forgetValue(BO);
       Changed = true;
@@ -539,7 +539,7 @@ bool SimplifyIndvar::strengthenOverflowingOperation(BinaryOperator *BO,
     const SCEV *OpAfterExtend = (SE->*GetExprForBO)(
       SE->getSignExtendExpr(LHS, WideTy), SE->getSignExtendExpr(RHS, WideTy),
       SCEV::FlagAnyWrap);
-    if (ExtendAfterOp == OpAfterExtend) {
+    if (SE->hasSameValue(ExtendAfterOp, OpAfterExtend)) {
       BO->setHasNoSignedWrap();
       SE->forgetValue(BO);
       Changed = true;
