@@ -12,8 +12,8 @@ L:                                                ; preds = %idxend.10, %idxend,
 
 L1:                                               ; preds = %L1.preheader, %L2
   %r13 = phi i64 [ %r1, %L2 ], [ 1, %L ]
-; CHECK:  %lsr.iv = phi i64 [ 0, %L{{[^ ]+}} ], [ %lsr.iv.next, %L2 ]
-; CHECK-NOT:  %lsr.iv = phi i64 [ -1, %L{{[^ ]+}} ], [ %lsr.iv.next, %L2 ]
+; CHECK:  %lsr.iv2 = phi i64 [ 0, %L{{[^ ]+}} ], [ %lsr.iv.next3, %L2 ]
+; CHECK-NOT:  %lsr.iv2 = phi i64 [ -1, %L{{[^ ]+}} ], [ %lsr.iv.next3, %L2 ]
 ; CHECK:  br
   %r0 = add i64 %r13, -1
   br label %idxend.8
