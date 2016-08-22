@@ -2991,6 +2991,17 @@ ScalarEvolution::getGEPExpr(Type *PointeeType, const SCEV *BaseExpr,
   // context. This can be fixed similarly to how these flags are handled for
   // adds.
   SCEV::NoWrapFlags Wrap = InBounds ? SCEV::FlagNSW : SCEV::FlagAnyWrap;
+  bool IsNUW =
+      InBounds && IndexExprs.size() == 1 && isKnownNonNegative(IndexExprs[0]);
+  if (auto *B = dyn_cast<SCEVAddRecExpr>(BaseExpr))
+    IsNUW &= B->hasNoUnsignedWrap();
+
+#if 0
+  dbgs() << "For " << *BaseExpr << " " << IsNUW << " " << "\n";
+  auto I = 0;
+  for (auto *S : IndexExprs)
+    dbgs() << " XX " << I++ << " "<< *S << "\n";
+#endif
 
   const SCEV *TotalOffset = getZero(IntPtrTy);
   // The address space is unimportant. The first thing we do on CurTy is getting
@@ -3026,7 +3037,14 @@ ScalarEvolution::getGEPExpr(Type *PointeeType, const SCEV *BaseExpr,
   }
 
   // Add the total offset from all the GEP indices to the base.
-  return getAddExpr(BaseExpr, TotalOffset, Wrap);
+  const SCEV *S = getAddExpr(BaseExpr, TotalOffset, Wrap);
+  if (IsNUW) {
+    if (auto *SA = dyn_cast<SCEVAddExpr>(S))
+      const_cast<SCEVAddExpr *>(SA)->setNoWrapFlags(SCEV::FlagNUW);
+    if (auto *AR = dyn_cast<SCEVAddRecExpr>(S))
+      const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNUW);
+  }
+  return S;
 }
 
 const SCEV *ScalarEvolution::getSMaxExpr(const SCEV *LHS,
