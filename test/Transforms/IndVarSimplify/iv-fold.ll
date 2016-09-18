@@ -5,7 +5,7 @@ target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f3
 ; Indvars should be able to fold IV increments into shr when low bits are zero.
 ;
 ; CHECK-LABEL: @foldIncShr(
-; CHECK: shr.1 = lshr i32 %0, 5
+; CHECK: shr = lshr i32 %0, 5
 define i32 @foldIncShr(i32* %bitmap, i32 %bit_addr, i32 %nbits) nounwind {
 entry:
   br label %while.body
