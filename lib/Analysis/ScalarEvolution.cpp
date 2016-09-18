@@ -4084,6 +4084,18 @@ const SCEV *ScalarEvolution::createAddRecFromPHI(PHINode *PN) {
           forgetSymbolicName(PN, SymbolicName);
           ValueExprMap[SCEVCallbackVH(PN, this)] = PHISCEV;
 
+	  if (isAddRecNeverPoison(PN, L)) {
+            if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                    getAddRecExpr(StartVal, Accum, L, SCEV::FlagAnyWrap)))
+              const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
+            if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                    getAddRecExpr(StartVal, Accum, L, SCEV::FlagNSW)))
+              const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
+            if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                    getAddRecExpr(StartVal, Accum, L, SCEV::FlagNUW)))
+              const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
+          }
+
           // We can add Flags to the post-inc expression only if we
           // know that it us *undefined behavior* for BEValueV to
           // overflow.
@@ -4097,6 +4109,20 @@ const SCEV *ScalarEvolution::createAddRecFromPHI(PHINode *PN) {
                                   Accum, L, Flags);
               (void)getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagNUW),
                                   Accum, L, Flags);
+
+              if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                      getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagAnyWrap),
+                                    Accum, L, SCEV::FlagAnyWrap)))
+                const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
+
+              if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                      getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagAnyWrap),
+                                    Accum, L, SCEV::FlagNSW)))
+                const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
+              if (auto *SA = dyn_cast<SCEVAddRecExpr>(
+                      getAddRecExpr(getAddExpr(StartVal, Accum, SCEV::FlagAnyWrap),
+                                    Accum, L, SCEV::FlagNUW)))
+                const_cast<SCEVAddRecExpr *>(SA)->setNoWrapFlags(Flags);
             }
 
           return PHISCEV;

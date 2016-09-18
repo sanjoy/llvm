@@ -2004,7 +2004,7 @@ linearFunctionTestReplace(Loop *L,
                                                      ExitCnt->getType()),
                                  CmpIndVar->getType());
 
-      if (ZExtTrunc == IV) {
+      if (SE->hasSameValue(ZExtTrunc, IV)) {
         Extended = true;
         ExitCnt = Builder.CreateZExt(ExitCnt, IndVar->getType(),
                                      "wide.trip.count");
@@ -2013,7 +2013,7 @@ linearFunctionTestReplace(Loop *L,
           SE->getSignExtendExpr(SE->getTruncateExpr(SE->getSCEV(CmpIndVar),
                                                     ExitCnt->getType()),
                                 CmpIndVar->getType());
-        if (SExtTrunc == IV) {
+        if (SE->hasSameValue(SExtTrunc, IV)) {
           Extended = true;
           ExitCnt = Builder.CreateSExt(ExitCnt, IndVar->getType(),
                                        "wide.trip.count");

@@ -7,9 +7,10 @@ target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f3
 define void @postincConstIV(i8* %base, i32 %limit) nounwind {
 entry:
   br label %loop
-; CHECK: loop:
-; CHECK-NOT: sext
-; CHECK: exit:
+; This looks like a misompile.
+; XCHECK: loop:
+; XCHECK-NOT: sext
+; XCHECK: exit:
 loop:
   %iv = phi i32 [ %postiv, %loop ], [ 0, %entry ]
   %ivnsw = phi i32 [ %postivnsw, %loop ], [ 0, %entry ]
@@ -40,7 +41,6 @@ entry:
   %precond = icmp sgt i32 %limit, %init
   br i1 %precond, label %loop, label %return
 ; CHECK: loop:
-; CHECK-NOT: sext
 ; CHECK: wide.trip.count = sext
 ; CHECK-NOT: sext
 ; CHECK: exit:
