@@ -129,7 +129,7 @@ Value *SimplifyIndvar::foldIVUser(Instruction *UseInst, Instruction *IVOperand) 
     return nullptr;
 
   // Bypass the operand if SCEV can prove it has no effect.
-  if (SE->getSCEV(UseInst) != FoldedExpr)
+  if (!SE->hasSameValue(SE->getSCEV(UseInst), FoldedExpr))
     return nullptr;
 
   DEBUG(dbgs() << "INDVARS: Eliminated IV operand: " << *IVOperand
@@ -380,7 +380,7 @@ bool SimplifyIndvar::eliminateOverflowIntrinsic(CallInst *CI) {
       (SE->*Operation)((SE->*Extension)(LHS, WideTy),
                        (SE->*Extension)(RHS, WideTy), SCEV::FlagAnyWrap);
 
-  if (A != B)
+  if (!SE->hasSameValue(A, B))
     return false;
 
   // Proved no overflow, nuke the overflow check and, if possible, the overflow
@@ -449,7 +449,7 @@ bool SimplifyIndvar::eliminateIdentitySCEV(Instruction *UseInst,
                                            Instruction *IVOperand) {
   if (!SE->isSCEVable(UseInst->getType()) ||
       (UseInst->getType() != IVOperand->getType()) ||
-      (SE->getSCEV(UseInst) != SE->getSCEV(IVOperand)))
+      (!SE->hasSameValue(SE->getSCEV(UseInst), SE->getSCEV(IVOperand))))
     return false;
 
   // getSCEV(X) == getSCEV(Y) does not guarantee that X and Y are related in the
