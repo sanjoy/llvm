@@ -165,6 +165,8 @@ void rotl(MutableAPIntRef Result, APIntRef Val, unsigned rotateAmt,
 unsigned countLeadingZeros(APIntRef Val);
 unsigned countLeadingOnes(APIntRef Val);
 void profile(APIntRef Val, FoldingSetNodeID& ID);
+void increment(MutableAPIntRef Val);
+void decrement(MutableAPIntRef Val);
 
 inline void clearUnusedBits(MutableAPIntRef Val) {
   // Compute how many bits are used in the final word
@@ -850,6 +852,70 @@ public:
 
     return I1.zext(I2.getBitWidth()) == I2;
   }
+
+  /// \brief Postfix increment operator.
+  ///
+  /// \returns a new APInt value representing *this incremented by one
+  const APIntTy operator++(int) {
+    APIntTy API(*this);
+    ++(*this);
+    return API;
+  }
+
+  /// \brief Prefix increment operator.
+  ///
+  /// \returns *this incremented by one
+  APIntTy &operator++() {
+    if (isSingleWord())
+      getSingleWordValue()++;
+    else
+      apint_detail::ops::increment(getAsMutableRef());
+    clearUnusedBits();
+    return *asAPIntTy();
+  }
+
+  /// \brief Postfix decrement operator.
+  ///
+  /// \returns a new APInt representing *this decremented by one.
+  const APIntTy operator--(int) {
+    APIntTy API(*asAPIntTy());
+    --(*this);
+    return API;
+  }
+
+  /// \brief Prefix decrement operator.
+  ///
+  /// \returns *this decremented by one.
+  APIntTy &operator--() {
+    if (isSingleWord())
+      --getSingleWordValue();
+    else
+      apint_detail::ops::decrement(getAsMutableRef());
+    clearUnusedBits();
+    return *asAPIntTy();
+  }
+
+  /// \brief Unary bitwise complement operator.
+  ///
+  /// Performs a bitwise complement operation on this APInt.
+  ///
+  /// \returns an APInt that is the bitwise complement of *this
+  APIntTy operator~() const {
+    APIntTy Result(*asAPIntTy());
+    Result.flipAllBits();
+    return Result;
+  }
+
+  /// \brief Toggle every bit to its opposite value.
+  void flipAllBits() {
+    if (isSingleWord())
+      getSingleWordValue() ^= UINT64_MAX;
+    else {
+      for (unsigned i = 0; i < getNumWords(); ++i)
+        getValBuffer()[i] ^= UINT64_MAX;
+    }
+    clearUnusedBits();
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -1048,45 +1114,6 @@ public:
   /// @}
   /// \name Unary Operators
   /// @{
-
-  /// \brief Postfix increment operator.
-  ///
-  /// \returns a new APInt value representing *this incremented by one
-  const APInt operator++(int) {
-    APInt API(*this);
-    ++(*this);
-    return API;
-  }
-
-  /// \brief Prefix increment operator.
-  ///
-  /// \returns *this incremented by one
-  APInt &operator++();
-
-  /// \brief Postfix decrement operator.
-  ///
-  /// \returns a new APInt representing *this decremented by one.
-  const APInt operator--(int) {
-    APInt API(*this);
-    --(*this);
-    return API;
-  }
-
-  /// \brief Prefix decrement operator.
-  ///
-  /// \returns *this decremented by one.
-  APInt &operator--();
-
-  /// \brief Unary bitwise complement operator.
-  ///
-  /// Performs a bitwise complement operation on this APInt.
-  ///
-  /// \returns an APInt that is the bitwise complement of *this
-  APInt operator~() const {
-    APInt Result(*this);
-    Result.flipAllBits();
-    return Result;
-  }
 
   /// @}
   /// \name Assignment Operators
@@ -1548,17 +1575,6 @@ public:
   ///
   /// Set the given bit to 0 whose position is given as "bitPosition".
   void clearBit(unsigned bitPosition);
-
-  /// \brief Toggle every bit to its opposite value.
-  void flipAllBits() {
-    if (isSingleWord())
-      VAL ^= UINT64_MAX;
-    else {
-      for (unsigned i = 0; i < getNumWords(); ++i)
-        pVal[i] ^= UINT64_MAX;
-    }
-    clearUnusedBits();
-  }
 
   /// \brief Toggles a given bit to its opposite value.
   ///

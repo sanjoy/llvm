@@ -190,12 +190,8 @@ static bool add_1(uint64_t dest[], uint64_t x[], unsigned len, uint64_t y) {
 }
 
 /// @brief Prefix increment operator. Increments the APInt by one.
-APInt& APInt::operator++() {
-  if (isSingleWord())
-    ++VAL;
-  else
-    add_1(pVal, pVal, getNumWords(), 1);
-  return clearUnusedBits();
+void apint_detail::ops::increment(MutableAPIntRef Val) {
+  add_1(Val.getBuffer(), Val.getBuffer(), Val.getNumWords(), 1);
 }
 
 /// This function subtracts a single "digit" (64-bit word), y, from
@@ -219,12 +215,8 @@ static bool sub_1(uint64_t x[], unsigned len, uint64_t y) {
 }
 
 /// @brief Prefix decrement operator. Decrements the APInt by one.
-APInt& APInt::operator--() {
-  if (isSingleWord())
-    --VAL;
-  else
-    sub_1(pVal, getNumWords(), 1);
-  return clearUnusedBits();
+void apint_detail::ops::decrement(MutableAPIntRef Val) {
+  sub_1(Val.getBuffer(), Val.getNumWords(), 1);
 }
 
 /// This function adds the integer array x to the integer array Y and
