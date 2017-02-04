@@ -153,14 +153,9 @@ APInt& APInt::AssignSlowCase(const APInt& RHS) {
   return clearUnusedBits();
 }
 
-APInt& APInt::operator=(uint64_t RHS) {
-  if (isSingleWord())
-    VAL = RHS;
-  else {
-    pVal[0] = RHS;
-    memset(pVal + 1, 0, (getNumWords() - 1) * apint_detail::APINT_WORD_SIZE);
-  }
-  return clearUnusedBits();
+void apint_detail::ops::assignSingleWord(MutableAPIntRef Val, uint64_t RHS) {
+  Val.getBuffer()[0] = RHS;
+  memset(Val.getBuffer() + 1, 0, (Val.getNumWords() - 1) * apint_detail::APINT_WORD_SIZE);
 }
 
 /// This method 'profiles' an APInt for use with FoldingSet.
@@ -237,22 +232,17 @@ static bool add(uint64_t *dest, const uint64_t *x, const uint64_t *y,
 /// Adds the RHS APint to this APInt.
 /// @returns this, after addition of RHS.
 /// @brief Addition assignment operator.
-APInt& APInt::operator+=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord())
-    VAL += RHS.VAL;
-  else {
-    add(pVal, pVal, RHS.pVal, getNumWords());
-  }
-  return clearUnusedBits();
+void apint_detail::ops::addInPlace(MutableAPIntRef Result, APIntRef RHS) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() &&
+         "Bit widths must be the same");
+  add(Result.getBuffer(), Result.getBuffer(), RHS.getBuffer(),
+      Result.getNumWords());
+  apint_detail::ops::clearUnusedBits(Result);
 }
 
-APInt& APInt::operator+=(uint64_t RHS) {
-  if (isSingleWord())
-    VAL += RHS;
-  else
-    add_1(pVal, pVal, getNumWords(), RHS);
-  return clearUnusedBits();
+void apint_detail::ops::addInPlace(MutableAPIntRef Result, uint64_t RHS) {
+  add_1(Result.getBuffer(), Result.getBuffer(), Result.getNumWords(), RHS);
+  apint_detail::ops::clearUnusedBits(Result);
 }
 
 /// Subtracts the integer array y from the integer array x
@@ -272,21 +262,17 @@ static bool sub(uint64_t *dest, const uint64_t *x, const uint64_t *y,
 /// Subtracts the RHS APInt from this APInt
 /// @returns this, after subtraction
 /// @brief Subtraction assignment operator.
-APInt& APInt::operator-=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord())
-    VAL -= RHS.VAL;
-  else
-    sub(pVal, pVal, RHS.pVal, getNumWords());
-  return clearUnusedBits();
+void apint_detail::ops::subInPlace(MutableAPIntRef Result, APIntRef RHS) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() &&
+         "Bit widths must be the same");
+  sub(Result.getBuffer(), Result.getBuffer(), RHS.getBuffer(),
+      Result.getNumWords());
+  apint_detail::ops::clearUnusedBits(Result);
 }
 
-APInt& APInt::operator-=(uint64_t RHS) {
-  if (isSingleWord())
-    VAL -= RHS;
-  else
-    sub_1(pVal, getNumWords(), RHS);
-  return clearUnusedBits();
+void apint_detail::ops::subInPlace(MutableAPIntRef Result, uint64_t RHS) {
+  sub_1(Result.getBuffer(), Result.getNumWords(), RHS);
+  apint_detail::ops::clearUnusedBits(Result);
 }
 
 /// Multiplies an integer array, x, by a uint64_t integer and places the result
@@ -327,8 +313,8 @@ static uint64_t mul_1(uint64_t dest[], uint64_t x[], unsigned len, uint64_t y) {
 /// Multiplies integer array x by integer array y and stores the result into
 /// the integer array dest. Note that dest's size must be >= xlen + ylen.
 /// @brief Generalized multiplicate of integer arrays.
-static void mul(uint64_t dest[], uint64_t x[], unsigned xlen, uint64_t y[],
-                unsigned ylen) {
+static void mul(uint64_t dest[], uint64_t x[], unsigned xlen,
+                const uint64_t y[], unsigned ylen) {
   dest[xlen] = mul_1(dest, x, xlen, y[0]);
   for (unsigned i = 1; i < ylen; ++i) {
     uint64_t ly = y[i] & 0xffffffffULL, hy = y[i] >> 32;
@@ -357,96 +343,69 @@ static void mul(uint64_t dest[], uint64_t x[], unsigned xlen, uint64_t y[],
   }
 }
 
-APInt& APInt::operator*=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord()) {
-    VAL *= RHS.VAL;
-    clearUnusedBits();
-    return *this;
-  }
+std::pair<unsigned, unsigned>
+apint_detail::ops::computeInPlaceMulBufferSize(APIntRef LHS, APIntRef RHS) {
+  unsigned LHSBits = apint_detail::ops::getActiveBits(LHS);
+  unsigned LHSWords =
+      !LHSBits ? 0 : apint_detail::ops::whichWord(LHSBits - 1) + 1;
 
-  // Get some bit facts about LHS and check for zero
-  unsigned lhsBits = getActiveBits();
-  unsigned lhsWords =
-      !lhsBits ? 0 : apint_detail::ops::whichWord(lhsBits - 1) + 1;
-  if (!lhsWords)
-    // 0 * X ===> 0
-    return *this;
+  unsigned RHSBits = apint_detail::ops::getActiveBits(RHS);
+  unsigned RHSWords =
+      !RHSBits ? 0 : apint_detail::ops::whichWord(RHSBits - 1) + 1;
 
-  // Get some bit facts about RHS and check for zero
-  unsigned rhsBits = RHS.getActiveBits();
-  unsigned rhsWords =
-      !rhsBits ? 0 : apint_detail::ops::whichWord(rhsBits - 1) + 1;
-  if (!rhsWords) {
-    // X * 0 ===> 0
-    clearAllBits();
-    return *this;
-  }
+  return {LHSWords, RHSWords};
+}
+
+void apint_detail::ops::mulInPlace(MutableAPIntRef Result, unsigned LHSWords,
+                                   APIntRef RHS, unsigned RHSWords,
+                                   MutableAPIntRef Scratch) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() &&
+         "Bit widths must be the same");
 
   // Allocate space for the result
-  unsigned destWords = rhsWords + lhsWords;
-  uint64_t *dest = getMemory(destWords);
+  unsigned DestWords = RHSWords + LHSWords;
+  assert(Scratch.getBitWidth() ==
+         DestWords * apint_detail::APINT_BITS_PER_WORD);
 
   // Perform the long multiply
-  mul(dest, pVal, lhsWords, RHS.pVal, rhsWords);
+  mul(Scratch.getBuffer(), Result.getBuffer(), LHSWords, RHS.getBuffer(),
+      RHSWords);
 
   // Copy result back into *this
-  clearAllBits();
-  unsigned wordsToCopy = destWords >= getNumWords() ? getNumWords() : destWords;
-  memcpy(pVal, dest, wordsToCopy * apint_detail::APINT_WORD_SIZE);
-  clearUnusedBits();
-
-  // delete dest array and return
-  delete[] dest;
-  return *this;
+  unsigned wordsToCopy = std::min(DestWords, Result.getNumWords());
+  memcpy(Result.getBuffer(), Scratch.getBuffer(),
+         wordsToCopy * apint_detail::APINT_WORD_SIZE);
+  apint_detail::ops::clearUnusedBits(Result);
 }
 
-APInt& APInt::operator&=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord()) {
-    VAL &= RHS.VAL;
-    return *this;
-  }
-  unsigned numWords = getNumWords();
+void apint_detail::ops::inPlaceAnd(MutableAPIntRef Result, APIntRef RHS) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() &&
+         "Bit widths must be the same");
+  unsigned numWords = Result.getNumWords();
   for (unsigned i = 0; i < numWords; ++i)
-    pVal[i] &= RHS.pVal[i];
-  return *this;
+    Result.getBuffer()[i] &= RHS.getBuffer()[i];
 }
 
-APInt &APInt::operator&=(uint64_t RHS) {
-  if (isSingleWord()) {
-    VAL &= RHS;
-    return *this;
-  }
-  pVal[0] &= RHS;
-  unsigned numWords = getNumWords();
+void apint_detail::ops::inPlaceAnd(MutableAPIntRef Result, uint64_t RHS) {
+  Result.getBuffer()[0] &= RHS;
+  unsigned numWords = Result.getNumWords();
   for (unsigned i = 1; i < numWords; ++i)
-    pVal[i] = 0;
-  return *this;
+    Result.getBuffer()[i] = 0;
 }
 
-APInt& APInt::operator|=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord()) {
-    VAL |= RHS.VAL;
-    return *this;
-  }
-  unsigned numWords = getNumWords();
+void apint_detail::ops::inPlaceOr(MutableAPIntRef Result, APIntRef RHS) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() &&
+         "Bit widths must be the same");
+  unsigned numWords = Result.getNumWords();
   for (unsigned i = 0; i < numWords; ++i)
-    pVal[i] |= RHS.pVal[i];
-  return *this;
+    Result.getBuffer()[i] |= RHS.getBuffer()[i];
 }
 
-APInt& APInt::operator^=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord()) {
-    VAL ^= RHS.VAL;
-    return *this;
-  }
-  unsigned numWords = getNumWords();
+void apint_detail::ops::inPlaceXor(MutableAPIntRef Result, APIntRef RHS) {
+  assert(Result.getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+  unsigned numWords = Result.getNumWords();
   for (unsigned i = 0; i < numWords; ++i)
-    pVal[i] ^= RHS.pVal[i];
-  return *this;
+    Result.getBuffer()[i] ^= RHS.getBuffer()[i];
 }
 
 void apint_detail::ops::And(MutableAPIntRef Result, APIntRef LHS,

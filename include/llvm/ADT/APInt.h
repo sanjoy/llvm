@@ -167,6 +167,19 @@ unsigned countLeadingOnes(APIntRef Val);
 void profile(APIntRef Val, FoldingSetNodeID& ID);
 void increment(MutableAPIntRef Val);
 void decrement(MutableAPIntRef Val);
+void assignSingleWord(MutableAPIntRef Val, uint64_t RHS);
+void inPlaceAnd(MutableAPIntRef Result, APIntRef LHS);
+void mulInPlace(MutableAPIntRef Result, unsigned LHSWords, APIntRef RHS,
+                unsigned RHSWords, MutableAPIntRef Scratch);
+std::pair<unsigned, unsigned> computeInPlaceMulBufferSize(APIntRef LHS,
+                                                          APIntRef RHS);
+void addInPlace(MutableAPIntRef Result, APIntRef RHS);
+void addInPlace(MutableAPIntRef Result, uint64_t RHS);
+void subInPlace(MutableAPIntRef Result, APIntRef RHS);
+void subInPlace(MutableAPIntRef Result, uint64_t RHS);
+void inPlaceOr(MutableAPIntRef Result, APIntRef RHS);
+void inPlaceAnd(MutableAPIntRef Result, uint64_t RHS);
+void inPlaceXor(MutableAPIntRef Result, APIntRef RHS);
 
 inline void clearUnusedBits(MutableAPIntRef Val) {
   // Compute how many bits are used in the final word
@@ -210,6 +223,8 @@ template <typename APIntTy> class APIntImpl {
   const uint64_t *getValBuffer() const { return asAPIntTy()->getValBuffer(); }
 
 protected:
+  enum class uninitialized_t { uninitialized };
+
   uint64_t getSingleWordValue() const {
     assert(isSingleWord() && "Contract violated!");
     return asAPIntTy()->getSingleWordValue();
@@ -284,8 +299,8 @@ public:
   APIntTy operator&(const APIntTy &RHS) const {
     assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
     if (isSingleWord())
-      return APInt(getBitWidth(),
-                   getSingleWordValue() & RHS.getSingleWordValue());
+      return APIntTy(getBitWidth(),
+                     getSingleWordValue() & RHS.getSingleWordValue());
 
     APIntTy Result(getBitWidth(), 0);
     apint_detail::ops::And(Result.getAsMutableRef(), getAsRef(),
@@ -303,8 +318,8 @@ public:
   APIntTy operator|(const APIntTy &RHS) const {
     assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
     if (isSingleWord())
-      return APInt(getBitWidth(),
-                   getSingleWordValue() | RHS.getSingleWordValue());
+      return APIntTy(getBitWidth(),
+                     getSingleWordValue() | RHS.getSingleWordValue());
 
     APIntTy Result(getBitWidth(), 0);
     apint_detail::ops::Or(Result.getAsMutableRef(), getAsRef(), RHS.getAsRef());
@@ -327,8 +342,8 @@ public:
   APIntTy operator^(const APIntTy &RHS) const {
     assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
     if (isSingleWord())
-      return APInt(getBitWidth(),
-                   getSingleWordValue() ^ RHS.getSingleWordValue());
+      return APIntTy(getBitWidth(),
+                     getSingleWordValue() ^ RHS.getSingleWordValue());
 
     APIntTy Result(getBitWidth(), 0);
     apint_detail::ops::Xor(Result.getAsMutableRef(), getAsRef(),
@@ -916,6 +931,213 @@ public:
     }
     clearUnusedBits();
   }
+
+
+  /// \brief Assignment operator.
+  ///
+  /// The RHS value is assigned to *this. If the significant bits in RHS exceed
+  /// the bit width, the excess bits are truncated. If the bit width is larger
+  /// than 64, the value is zero filled in the unspecified high order bits.
+  ///
+  /// \returns *this after assignment of RHS value.
+  APIntTy &operator=(uint64_t RHS) {
+    if (isSingleWord())
+      getSingleWordValue() = RHS;
+    else
+      apint_detail::ops::assignSingleWord(getAsMutableRef(), RHS);
+    clearUnusedBits();
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise AND assignment operator.
+  ///
+  /// Performs a bitwise AND operation on this APInt and RHS. The result is
+  /// assigned to *this.
+  ///
+  /// \returns *this after ANDing with RHS.
+  APIntTy &operator&=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+    if (isSingleWord())
+      getSingleWordValue() &= RHS.getSingleWordValue();
+    else
+      apint_detail::ops::inPlaceAnd(getAsMutableRef(), RHS.getAsRef());
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise AND assignment operator.
+  ///
+  /// Performs a bitwise AND operation on this APInt and RHS. RHS is
+  /// logically zero-extended or truncated to match the bit-width of
+  /// the LHS.
+  APIntTy &operator&=(uint64_t RHS) {
+    if (isSingleWord())
+      getSingleWordValue() &= RHS;
+    else
+      apint_detail::ops::inPlaceAnd(getAsMutableRef(), RHS);
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise OR assignment operator.
+  ///
+  /// Performs a bitwise OR operation on this APInt and RHS. The result is
+  /// assigned *this;
+  ///
+  /// \returns *this after ORing with RHS.
+  APIntTy &operator|=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+    if (isSingleWord())
+      getSingleWordValue() |= RHS.getSingleWordValue();
+    else
+      apint_detail::ops::inPlaceOr(getAsMutableRef(), RHS.getAsRef());
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise OR assignment operator.
+  ///
+  /// Performs a bitwise OR operation on this APInt and RHS. RHS is
+  /// logically zero-extended or truncated to match the bit-width of
+  /// the LHS.
+  APIntTy &operator|=(uint64_t RHS) {
+    if (isSingleWord()) {
+      getSingleWordValue() |= RHS;
+      clearUnusedBits();
+    } else {
+      getValBuffer()[0] |= RHS;
+    }
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise XOR assignment operator.
+  ///
+  /// Performs a bitwise XOR operation on this APInt and RHS. The result is
+  /// assigned to *this.
+  ///
+  /// \returns *this after XORing with RHS.
+  APIntTy &operator^=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+    if (isSingleWord())
+      getSingleWordValue() ^= RHS.getSingleWordValue();
+    else
+      apint_detail::ops::inPlaceXor(getAsMutableRef(), RHS.getAsRef());
+    return *asAPIntTy();
+  }
+
+  /// \brief Bitwise XOR assignment operator.
+  ///
+  /// Performs a bitwise XOR operation on this APInt and RHS. RHS is
+  /// logically zero-extended or truncated to match the bit-width of
+  /// the LHS.
+  APIntTy &operator^=(uint64_t RHS) {
+    if (isSingleWord()) {
+      getSingleWordValue() ^= RHS;
+      clearUnusedBits();
+    } else {
+      getValBuffer()[0] ^= RHS;
+    }
+    return *asAPIntTy();
+  }
+
+  /// \brief Multiplication assignment operator.
+  ///
+  /// Multiplies this APInt by RHS and assigns the result to *this.
+  ///
+  /// \returns *this
+  APIntTy &operator*=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+    if (isSingleWord()) {
+      getSingleWordValue() *= RHS.getSingleWordValue();
+      clearUnusedBits();
+      return *asAPIntTy();
+    }
+
+    unsigned ActiveLHSWords, ActiveRHSWords;
+    std::tie(ActiveLHSWords, ActiveRHSWords) =
+        apint_detail::ops::computeInPlaceMulBufferSize(getAsRef(),
+                                                       RHS.getAsRef());
+
+    if (ActiveLHSWords == 0 || ActiveRHSWords == 0) {
+      // X * 0 == 0 * X == 0
+      *this = 0;
+      return *asAPIntTy();
+    }
+
+    APIntTy Scratch((ActiveLHSWords + ActiveRHSWords) *
+                        apint_detail::APINT_BITS_PER_WORD,
+                    uninitialized_t::uninitialized);
+    apint_detail::ops::mulInPlace(getAsMutableRef(), ActiveLHSWords,
+                                  RHS.getAsRef(), ActiveRHSWords,
+                                  Scratch.getAsMutableRef());
+
+    return *asAPIntTy();
+  }
+
+  /// \brief Addition assignment operator.
+  ///
+  /// Adds RHS to *this and assigns the result to *this.
+  ///
+  /// \returns *this
+  APIntTy &operator+=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+
+    if (isSingleWord()) {
+      getSingleWordValue() += RHS.getSingleWordValue();
+      clearUnusedBits();
+    } else {
+      apint_detail::ops::addInPlace(getAsMutableRef(), RHS.getAsRef());
+    }
+
+    return *asAPIntTy();
+  }
+
+  APIntTy &operator+=(uint64_t RHS) {
+    if (isSingleWord()) {
+      getSingleWordValue() += RHS;
+      clearUnusedBits();
+    } else {
+      apint_detail::ops::addInPlace(getAsMutableRef(), RHS);
+    }
+
+    return *asAPIntTy();
+  }
+
+  /// \brief Subtraction assignment operator.
+  ///
+  /// Subtracts RHS from *this and assigns the result to *this.
+  ///
+  /// \returns *this
+  APIntTy &operator-=(const APIntTy &RHS) {
+    assert(getBitWidth() == RHS.getBitWidth() && "Bit widths must be the same");
+
+    if (isSingleWord()) {
+      getSingleWordValue() -= RHS.getSingleWordValue();
+      clearUnusedBits();
+    } else {
+      apint_detail::ops::subInPlace(getAsMutableRef(), RHS.getAsRef());
+    }
+
+    return *asAPIntTy();
+  }
+
+  APIntTy &operator-=(uint64_t RHS) {
+    if (isSingleWord()) {
+      getSingleWordValue() -= RHS;
+      clearUnusedBits();
+    } else {
+      apint_detail::ops::subInPlace(getAsMutableRef(), RHS);
+    }
+
+    return *asAPIntTy();
+  }
+
+  /// \brief Left-shift assignment function.
+  ///
+  /// Shifts *this left by shiftAmt and assigns the result to *this.
+  ///
+  /// \returns *this after shifting left by shiftAmt
+  APIntTy &operator<<=(unsigned shiftAmt) {
+    *asAPIntTy() = shl(shiftAmt);
+    return *asAPIntTy();
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -972,6 +1194,11 @@ class LLVM_NODISCARD APInt : public APIntImpl<APInt> {
   /// temporaries. It is unsafe for general use so it is not public.
   APInt(uint64_t *val, unsigned bits) : BitWidth(bits), pVal(val) {}
 
+  APInt(unsigned bits, uninitialized_t) : BitWidth(bits) {
+    if (bits > apint_detail::APINT_BITS_PER_WORD)
+      pVal = new uint64_t[apint_detail::getNumWords(bits)];
+  }
+
   /// out-of-line slow case for operator=
   APInt &AssignSlowCase(const APInt &RHS);
 
@@ -1015,6 +1242,8 @@ class LLVM_NODISCARD APInt : public APIntImpl<APInt> {
   void initSlowCase(const APInt &that);
 
 public:
+  using APIntImpl<APInt>::operator=;
+
   /// \name Constructors
   /// @{
 
@@ -1154,109 +1383,6 @@ public:
     that.BitWidth = 0;
     BitWidth = ThatBitWidth;
 
-    return *this;
-  }
-
-  /// \brief Assignment operator.
-  ///
-  /// The RHS value is assigned to *this. If the significant bits in RHS exceed
-  /// the bit width, the excess bits are truncated. If the bit width is larger
-  /// than 64, the value is zero filled in the unspecified high order bits.
-  ///
-  /// \returns *this after assignment of RHS value.
-  APInt &operator=(uint64_t RHS);
-
-  /// \brief Bitwise AND assignment operator.
-  ///
-  /// Performs a bitwise AND operation on this APInt and RHS. The result is
-  /// assigned to *this.
-  ///
-  /// \returns *this after ANDing with RHS.
-  APInt &operator&=(const APInt &RHS);
-
-  /// \brief Bitwise AND assignment operator.
-  ///
-  /// Performs a bitwise AND operation on this APInt and RHS. RHS is
-  /// logically zero-extended or truncated to match the bit-width of
-  /// the LHS.
-  APInt &operator&=(uint64_t RHS);
-
-  /// \brief Bitwise OR assignment operator.
-  ///
-  /// Performs a bitwise OR operation on this APInt and RHS. The result is
-  /// assigned *this;
-  ///
-  /// \returns *this after ORing with RHS.
-  APInt &operator|=(const APInt &RHS);
-
-  /// \brief Bitwise OR assignment operator.
-  ///
-  /// Performs a bitwise OR operation on this APInt and RHS. RHS is
-  /// logically zero-extended or truncated to match the bit-width of
-  /// the LHS.
-  APInt &operator|=(uint64_t RHS) {
-    if (isSingleWord()) {
-      VAL |= RHS;
-      clearUnusedBits();
-    } else {
-      pVal[0] |= RHS;
-    }
-    return *this;
-  }
-
-  /// \brief Bitwise XOR assignment operator.
-  ///
-  /// Performs a bitwise XOR operation on this APInt and RHS. The result is
-  /// assigned to *this.
-  ///
-  /// \returns *this after XORing with RHS.
-  APInt &operator^=(const APInt &RHS);
-
-  /// \brief Bitwise XOR assignment operator.
-  ///
-  /// Performs a bitwise XOR operation on this APInt and RHS. RHS is
-  /// logically zero-extended or truncated to match the bit-width of
-  /// the LHS.
-  APInt &operator^=(uint64_t RHS) {
-    if (isSingleWord()) {
-      VAL ^= RHS;
-      clearUnusedBits();
-    } else {
-      pVal[0] ^= RHS;
-    }
-    return *this;
-  }
-
-  /// \brief Multiplication assignment operator.
-  ///
-  /// Multiplies this APInt by RHS and assigns the result to *this.
-  ///
-  /// \returns *this
-  APInt &operator*=(const APInt &RHS);
-
-  /// \brief Addition assignment operator.
-  ///
-  /// Adds RHS to *this and assigns the result to *this.
-  ///
-  /// \returns *this
-  APInt &operator+=(const APInt &RHS);
-  APInt &operator+=(uint64_t RHS);
-
-  /// \brief Subtraction assignment operator.
-  ///
-  /// Subtracts RHS from *this and assigns the result to *this.
-  ///
-  /// \returns *this
-  APInt &operator-=(const APInt &RHS);
-  APInt &operator-=(uint64_t RHS);
-
-  /// \brief Left-shift assignment function.
-  ///
-  /// Shifts *this left by shiftAmt and assigns the result to *this.
-  ///
-  /// \returns *this after shifting left by shiftAmt
-  APInt &operator<<=(unsigned shiftAmt) {
-    *this = shl(shiftAmt);
     return *this;
   }
 
