@@ -1148,7 +1148,7 @@ void apint_detail::ops::lshr(MutableAPIntRef Result, APIntRef LHS,
   // It's undefined behavior in C to shift by BitWidth or greater.
   unsigned shiftAmtAsInt = (unsigned)apint_detail::ops::getLimitedValue(
       shiftAmt, Result.getBitWidth());
-  return apint_detail::ops::shl(Result, LHS, shiftAmtAsInt);
+  return apint_detail::ops::lshr(Result, LHS, shiftAmtAsInt);
 }
 
 /// Logical right-shift this APInt by shiftAmt.
