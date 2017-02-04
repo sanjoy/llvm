@@ -164,17 +164,12 @@ APInt& APInt::operator=(uint64_t RHS) {
 }
 
 /// This method 'profiles' an APInt for use with FoldingSet.
-void APInt::Profile(FoldingSetNodeID& ID) const {
-  ID.AddInteger(BitWidth);
+void apint_detail::ops::profile(APIntRef Val, FoldingSetNodeID& ID) {
+  ID.AddInteger(Val.getBitWidth());
 
-  if (isSingleWord()) {
-    ID.AddInteger(VAL);
-    return;
-  }
-
-  unsigned NumWords = getNumWords();
+  unsigned NumWords = Val.getNumWords();
   for (unsigned i = 0; i < NumWords; ++i)
-    ID.AddInteger(pVal[i]);
+    ID.AddInteger(Val.getBuffer()[i]);
 }
 
 /// This function adds a single "digit" integer, y, to the multiple
@@ -668,17 +663,6 @@ bool apint_detail::ops::isSplat(APIntRef Val, unsigned SplatSizeInBits,
   apint_detail::ops::rotl(Scratch[0], Val, SplatSizeInBits,
                           {{Scratch[1], Scratch[2]}});
   return apint_detail::ops::equal(Val, Scratch[0].getAsRef());
-}
-
-/// This function returns the high "numBits" bits of this APInt.
-APInt APInt::getHiBits(unsigned numBits) const {
-  return APIntOps::lshr(*this, BitWidth - numBits);
-}
-
-/// This function returns the low "numBits" bits of this APInt.
-APInt APInt::getLoBits(unsigned numBits) const {
-  return APIntOps::lshr(APIntOps::shl(*this, BitWidth - numBits),
-                        BitWidth - numBits);
 }
 
 unsigned apint_detail::ops::countLeadingZeros(APIntRef Val) {

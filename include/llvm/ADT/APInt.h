@@ -164,6 +164,7 @@ void rotl(MutableAPIntRef Result, APIntRef Val, unsigned rotateAmt,
           std::array<MutableAPIntRef, 2> Scratch);
 unsigned countLeadingZeros(APIntRef Val);
 unsigned countLeadingOnes(APIntRef Val);
+void profile(APIntRef Val, FoldingSetNodeID& ID);
 
 inline void clearUnusedBits(MutableAPIntRef Val) {
   // Compute how many bits are used in the final word
@@ -691,6 +692,164 @@ public:
                             shiftAmt.getAsRef());
     return std::move(Result);
   }
+
+    /// Used to insert APInt objects, or objects that contain APInt objects, into
+  ///  FoldingSets.
+  void Profile(FoldingSetNodeID &ID) const {
+    apint_detail::ops::profile(getAsRef(), ID);
+  }
+
+  /// \brief Gets maximum unsigned value of APInt for specific bit width.
+  static APIntTy getMaxValue(unsigned numBits) {
+    return getAllOnesValue(numBits);
+  }
+
+  /// \brief Gets maximum signed value of APInt for a specific bit width.
+  static APIntTy getSignedMaxValue(unsigned numBits) {
+    APIntTy API = getAllOnesValue(numBits);
+    API.clearBit(numBits - 1);
+    return API;
+  }
+
+  /// \brief Gets minimum unsigned value of APInt for a specific bit width.
+  static APIntTy getMinValue(unsigned numBits) { return APIntTy(numBits, 0); }
+
+  /// \brief Gets minimum signed value of APInt for a specific bit width.
+  static APIntTy getSignedMinValue(unsigned numBits) {
+    APIntTy API(numBits, 0);
+    API.setBit(numBits - 1);
+    return API;
+  }
+
+  /// \brief Get the SignBit for a specific bit width.
+  ///
+  /// This is just a wrapper function of getSignedMinValue(), and it helps code
+  /// readability when we want to get a SignBit.
+  static APIntTy getSignBit(unsigned BitWidth) {
+    return getSignedMinValue(BitWidth);
+  }
+
+  /// \brief Get the all-ones value.
+  ///
+  /// \returns the all-ones value for an APInt of the specified bit-width.
+  static APIntTy getAllOnesValue(unsigned numBits) {
+    return APIntTy(numBits, UINT64_MAX, true);
+  }
+
+  /// \brief Get the '0' value.
+  ///
+  /// \returns the '0' value for an APInt of the specified bit-width.
+  static APIntTy getNullValue(unsigned numBits) { return APIntTy(numBits, 0); }
+
+  /// \brief Compute an APInt containing numBits highbits from this APInt.
+  ///
+  /// Get an APInt with the same BitWidth as this APInt, just zero mask
+  /// the low bits and right shift to the least significant bit.
+  ///
+  /// \returns the high "numBits" bits of this APInt.
+  APIntTy getHiBits(unsigned numBits) const {
+    return lshr(getBitWidth() - numBits);
+  }
+
+  /// \brief Compute an APInt containing numBits lowbits from this APInt.
+  ///
+  /// Get an APInt with the same BitWidth as this APInt, just zero mask
+  /// the high bits.
+  ///
+  /// \returns the low "numBits" bits of this APInt.
+  APIntTy getLoBits(unsigned numBits) const {
+    return shl(getBitWidth() - numBits).lshr(getBitWidth() - numBits);
+  }
+
+  /// \brief Return an APInt with exactly one bit set in the result.
+  static APIntTy getOneBitSet(unsigned numBits, unsigned BitNo) {
+    APIntTy Res(numBits, 0);
+    Res.setBit(BitNo);
+    return Res;
+  }
+
+    /// \brief Get a value with a block of bits set.
+  ///
+  /// Constructs an APInt value that has a contiguous range of bits set. The
+  /// bits from loBit (inclusive) to hiBit (exclusive) will be set. All other
+  /// bits will be zero. For example, with parameters(32, 0, 16) you would get
+  /// 0x0000FFFF. If hiBit is less than loBit then the set bits "wrap". For
+  /// example, with parameters (32, 28, 4), you would get 0xF000000F.
+  ///
+  /// \param numBits the intended bit width of the result
+  /// \param loBit the index of the lowest bit set.
+  /// \param hiBit the index of the highest bit set.
+  ///
+  /// \returns An APInt value with the requested bits set.
+  static APIntTy getBitsSet(unsigned numBits, unsigned loBit, unsigned hiBit) {
+    assert(hiBit <= numBits && "hiBit out of range");
+    assert(loBit < numBits && "loBit out of range");
+    if (hiBit < loBit)
+      return getLowBitsSet(numBits, hiBit) |
+             getHighBitsSet(numBits, numBits - loBit);
+    return getLowBitsSet(numBits, hiBit - loBit).shl(loBit);
+  }
+
+  /// \brief Get a value with high bits set
+  ///
+  /// Constructs an APInt value that has the top hiBitsSet bits set.
+  ///
+  /// \param numBits the bitwidth of the result
+  /// \param hiBitsSet the number of high-order bits set in the result.
+  static APIntTy getHighBitsSet(unsigned numBits, unsigned hiBitsSet) {
+    assert(hiBitsSet <= numBits && "Too many bits to set!");
+    // Handle a degenerate case, to avoid shifting by word size
+    if (hiBitsSet == 0)
+      return APIntTy(numBits, 0);
+    unsigned shiftAmt = numBits - hiBitsSet;
+    // For small values, return quickly
+    if (numBits <= apint_detail::APINT_BITS_PER_WORD)
+      return APIntTy(numBits, ~0ULL << shiftAmt);
+    return getAllOnesValue(numBits).shl(shiftAmt);
+  }
+
+  /// \brief Get a value with low bits set
+  ///
+  /// Constructs an APInt value that has the bottom loBitsSet bits set.
+  ///
+  /// \param numBits the bitwidth of the result
+  /// \param loBitsSet the number of low-order bits set in the result.
+  static APIntTy getLowBitsSet(unsigned numBits, unsigned loBitsSet) {
+    assert(loBitsSet <= numBits && "Too many bits to set!");
+    // Handle a degenerate case, to avoid shifting by word size
+    if (loBitsSet == 0)
+      return APIntTy(numBits, 0);
+    if (loBitsSet == apint_detail::APINT_BITS_PER_WORD)
+      return APIntTy(numBits, UINT64_MAX);
+    // For small values, return quickly.
+    if (loBitsSet <= apint_detail::APINT_BITS_PER_WORD)
+      return APIntTy(numBits, UINT64_MAX >> (apint_detail::APINT_BITS_PER_WORD -
+                                             loBitsSet));
+    return getAllOnesValue(numBits).lshr(numBits - loBitsSet);
+  }
+
+  /// \brief Return a value containing V broadcasted over NewLen bits.
+  static APIntTy getSplat(unsigned NewLen, const APIntTy &V) {
+    assert(NewLen >= V.getBitWidth() && "Can't splat to smaller bit width!");
+
+    APIntTy Val = V.zextOrSelf(NewLen);
+    for (unsigned I = V.getBitWidth(); I < NewLen; I <<= 1)
+      Val |= Val << I;
+
+    return Val;
+  }
+
+  /// \brief Determine if two APInts have the same value, after zero-extending
+  /// one of them (if needed!) to ensure that the bit-widths match.
+  static bool isSameValue(const APIntTy &I1, const APIntTy &I2) {
+    if (I1.getBitWidth() == I2.getBitWidth())
+      return I1 == I2;
+
+    if (I1.getBitWidth() > I2.getBitWidth())
+      return I1 == I2.zext(I1.getBitWidth());
+
+    return I1.zext(I2.getBitWidth()) == I2;
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -873,165 +1032,6 @@ public:
 
   /// \brief Returns whether this instance allocated memory.
   bool needsCleanup() const { return !isSingleWord(); }
-
-  /// Used to insert APInt objects, or objects that contain APInt objects, into
-  ///  FoldingSets.
-  void Profile(FoldingSetNodeID &id) const;
-
-  /// @}
-  /// \name Value Tests
-  /// @{
-
-  /// \name Value Generators
-  /// @{
-
-  /// \brief Gets maximum unsigned value of APInt for specific bit width.
-  static APInt getMaxValue(unsigned numBits) {
-    return getAllOnesValue(numBits);
-  }
-
-  /// \brief Gets maximum signed value of APInt for a specific bit width.
-  static APInt getSignedMaxValue(unsigned numBits) {
-    APInt API = getAllOnesValue(numBits);
-    API.clearBit(numBits - 1);
-    return API;
-  }
-
-  /// \brief Gets minimum unsigned value of APInt for a specific bit width.
-  static APInt getMinValue(unsigned numBits) { return APInt(numBits, 0); }
-
-  /// \brief Gets minimum signed value of APInt for a specific bit width.
-  static APInt getSignedMinValue(unsigned numBits) {
-    APInt API(numBits, 0);
-    API.setBit(numBits - 1);
-    return API;
-  }
-
-  /// \brief Get the SignBit for a specific bit width.
-  ///
-  /// This is just a wrapper function of getSignedMinValue(), and it helps code
-  /// readability when we want to get a SignBit.
-  static APInt getSignBit(unsigned BitWidth) {
-    return getSignedMinValue(BitWidth);
-  }
-
-  /// \brief Get the all-ones value.
-  ///
-  /// \returns the all-ones value for an APInt of the specified bit-width.
-  static APInt getAllOnesValue(unsigned numBits) {
-    return APInt(numBits, UINT64_MAX, true);
-  }
-
-  /// \brief Get the '0' value.
-  ///
-  /// \returns the '0' value for an APInt of the specified bit-width.
-  static APInt getNullValue(unsigned numBits) { return APInt(numBits, 0); }
-
-  /// \brief Compute an APInt containing numBits highbits from this APInt.
-  ///
-  /// Get an APInt with the same BitWidth as this APInt, just zero mask
-  /// the low bits and right shift to the least significant bit.
-  ///
-  /// \returns the high "numBits" bits of this APInt.
-  APInt getHiBits(unsigned numBits) const;
-
-  /// \brief Compute an APInt containing numBits lowbits from this APInt.
-  ///
-  /// Get an APInt with the same BitWidth as this APInt, just zero mask
-  /// the high bits.
-  ///
-  /// \returns the low "numBits" bits of this APInt.
-  APInt getLoBits(unsigned numBits) const;
-
-  /// \brief Return an APInt with exactly one bit set in the result.
-  static APInt getOneBitSet(unsigned numBits, unsigned BitNo) {
-    APInt Res(numBits, 0);
-    Res.setBit(BitNo);
-    return Res;
-  }
-
-  /// \brief Get a value with a block of bits set.
-  ///
-  /// Constructs an APInt value that has a contiguous range of bits set. The
-  /// bits from loBit (inclusive) to hiBit (exclusive) will be set. All other
-  /// bits will be zero. For example, with parameters(32, 0, 16) you would get
-  /// 0x0000FFFF. If hiBit is less than loBit then the set bits "wrap". For
-  /// example, with parameters (32, 28, 4), you would get 0xF000000F.
-  ///
-  /// \param numBits the intended bit width of the result
-  /// \param loBit the index of the lowest bit set.
-  /// \param hiBit the index of the highest bit set.
-  ///
-  /// \returns An APInt value with the requested bits set.
-  static APInt getBitsSet(unsigned numBits, unsigned loBit, unsigned hiBit) {
-    assert(hiBit <= numBits && "hiBit out of range");
-    assert(loBit < numBits && "loBit out of range");
-    if (hiBit < loBit)
-      return getLowBitsSet(numBits, hiBit) |
-             getHighBitsSet(numBits, numBits - loBit);
-    return getLowBitsSet(numBits, hiBit - loBit).shl(loBit);
-  }
-
-  /// \brief Get a value with high bits set
-  ///
-  /// Constructs an APInt value that has the top hiBitsSet bits set.
-  ///
-  /// \param numBits the bitwidth of the result
-  /// \param hiBitsSet the number of high-order bits set in the result.
-  static APInt getHighBitsSet(unsigned numBits, unsigned hiBitsSet) {
-    assert(hiBitsSet <= numBits && "Too many bits to set!");
-    // Handle a degenerate case, to avoid shifting by word size
-    if (hiBitsSet == 0)
-      return APInt(numBits, 0);
-    unsigned shiftAmt = numBits - hiBitsSet;
-    // For small values, return quickly
-    if (numBits <= apint_detail::APINT_BITS_PER_WORD)
-      return APInt(numBits, ~0ULL << shiftAmt);
-    return getAllOnesValue(numBits).shl(shiftAmt);
-  }
-
-  /// \brief Get a value with low bits set
-  ///
-  /// Constructs an APInt value that has the bottom loBitsSet bits set.
-  ///
-  /// \param numBits the bitwidth of the result
-  /// \param loBitsSet the number of low-order bits set in the result.
-  static APInt getLowBitsSet(unsigned numBits, unsigned loBitsSet) {
-    assert(loBitsSet <= numBits && "Too many bits to set!");
-    // Handle a degenerate case, to avoid shifting by word size
-    if (loBitsSet == 0)
-      return APInt(numBits, 0);
-    if (loBitsSet == apint_detail::APINT_BITS_PER_WORD)
-      return APInt(numBits, UINT64_MAX);
-    // For small values, return quickly.
-    if (loBitsSet <= apint_detail::APINT_BITS_PER_WORD)
-      return APInt(numBits, UINT64_MAX >> (apint_detail::APINT_BITS_PER_WORD -
-                                           loBitsSet));
-    return getAllOnesValue(numBits).lshr(numBits - loBitsSet);
-  }
-
-  /// \brief Return a value containing V broadcasted over NewLen bits.
-  static APInt getSplat(unsigned NewLen, const APInt &V) {
-    assert(NewLen >= V.getBitWidth() && "Can't splat to smaller bit width!");
-
-    APInt Val = V.zextOrSelf(NewLen);
-    for (unsigned I = V.getBitWidth(); I < NewLen; I <<= 1)
-      Val |= Val << I;
-
-    return Val;
-  }
-
-  /// \brief Determine if two APInts have the same value, after zero-extending
-  /// one of them (if needed!) to ensure that the bit-widths match.
-  static bool isSameValue(const APInt &I1, const APInt &I2) {
-    if (I1.getBitWidth() == I2.getBitWidth())
-      return I1 == I2;
-
-    if (I1.getBitWidth() > I2.getBitWidth())
-      return I1 == I2.zext(I1.getBitWidth());
-
-    return I1.zext(I2.getBitWidth()) == I2;
-  }
 
   /// \brief Overload to compute a hash_code for an APInt value.
   friend hash_code hash_value(const APInt &Arg);
